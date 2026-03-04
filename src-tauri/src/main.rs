@@ -47,7 +47,6 @@ fn main() {
     let initial_creds = claude::load_credentials();
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_positioner::init())
         .plugin(
             tauri_plugin_sql::Builder::default()
                 .add_migrations("sqlite:claude-monitor.db", migrations)
@@ -73,8 +72,16 @@ fn main() {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else {
-                                use tauri_plugin_positioner::{Position, WindowExt};
-                                let _ = win.as_ref().window().move_window(Position::BottomRight);
+                                // Position at bottom-right manually (positioner plugin crashes on Linux)
+                                if let Ok(Some(monitor)) = win.current_monitor() {
+                                    let screen = monitor.size();
+                                    let pos = monitor.position();
+                                    let size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(340, 520));
+                                    let scale = monitor.scale_factor();
+                                    let x = pos.x + (screen.width as i32) - (size.width as i32) - (12.0 * scale) as i32;
+                                    let y = pos.y + (screen.height as i32) - (size.height as i32) - (48.0 * scale) as i32;
+                                    let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+                                }
                                 let _ = win.show();
                                 let _ = win.set_focus();
                             }

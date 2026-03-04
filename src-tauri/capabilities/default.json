@@ -5,7 +5,6 @@
 	"windows": ["panel"],
 	"permissions": [
 		"core:default",
-		"positioner:default",
 		"sql:default",
 		"notification:default",
 		"core:window:allow-hide",
