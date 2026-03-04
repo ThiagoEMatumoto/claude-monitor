@@ -1,0 +1,215 @@
+use base64::{Engine as _, engine::general_purpose};
+use log::{info, warn};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use sha2::{Digest, Sha256};
+use std::fs;
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::path::PathBuf;
+
+pub const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+pub const ANTHROPIC_AUTH_URL: &str = "https://claude.ai/oauth/authorize";
+pub const ANTHROPIC_TOKEN_URL: &str = "https://console.anthropic.com/v1/oauth/token";
+pub const ANTHROPIC_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+pub const ANTHROPIC_AUTH_SCOPE: &str = "user:profile user:inference user:sessions:claude_code";
+pub const OAUTH_REDIRECT_PORT: u16 = 54546;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Credentials {
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct TokenResponse {
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: u64,
+    pub token_type: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UsagePeriod {
+    pub utilization: f32,
+    pub resets_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ExtraUsage {
+    pub is_enabled: bool,
+    pub monthly_limit: Option<f64>,
+    pub used_credits: Option<f64>,
+    pub utilization: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct UsageResponse {
+    pub five_hour: UsagePeriod,
+    pub seven_day: UsagePeriod,
+    pub seven_day_oauth_apps: Option<UsagePeriod>,
+    pub seven_day_opus: Option<UsagePeriod>,
+    pub seven_day_sonnet: Option<UsagePeriod>,
+    pub seven_day_cowork: Option<UsagePeriod>,
+    pub iguana_necktie: Option<UsagePeriod>,
+    pub seven_day_iguana_necktie: Option<UsagePeriod>,
+    pub extra_usage: ExtraUsage,
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
+}
+
+// --- Credentials ---
+
+fn config_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    PathBuf::from(home).join(".config/claude-monitor")
+}
+
+pub fn load_credentials() -> Option<Credentials> {
+    let own_path = config_dir().join("credentials.json");
+    if let Ok(data) = fs::read_to_string(&own_path) {
+        if let Ok(creds) = serde_json::from_str(&data) {
+            info!("loaded credentials from {:?}", own_path);
+            return Some(creds);
+        }
+    }
+
+    // Fallback to claude-tray credentials
+    let home = std::env::var("HOME").ok()?;
+    let tray_path = PathBuf::from(&home).join(".config/claude-tray/credentials.json");
+    if let Ok(data) = fs::read_to_string(&tray_path) {
+        if let Ok(creds) = serde_json::from_str::<Credentials>(&data) {
+            info!("loaded credentials from claude-tray: {:?}", tray_path);
+            let _ = save_credentials(&creds);
+            return Some(creds);
+        }
+    }
+
+    None
+}
+
+pub fn save_credentials(creds: &Credentials) -> Result<(), String> {
+    let dir = config_dir();
+    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let json = serde_json::to_string_pretty(creds).map_err(|e| e.to_string())?;
+    fs::write(dir.join("credentials.json"), json).map_err(|e| e.to_string())
+}
+
+pub fn clear_credentials() {
+    let path = config_dir().join("credentials.json");
+    let _ = fs::remove_file(path);
+}
+
+// --- OAuth ---
+
+fn extract_param(request: &str, param: &str) -> Result<String, String> {
+    let search = format!("{}=", param);
+    let start = request
+        .find(&search)
+        .ok_or_else(|| format!("param {} not found", param))?
+        + search.len();
+    let end = request[start..]
+        .find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n')
+        .map(|i| start + i)
+        .unwrap_or(request.len());
+    Ok(request[start..end].to_string())
+}
+
+pub async fn oauth_login() -> Result<Credentials, String> {
+    let verifier = {
+        let bytes: [u8; 32] = rand::random();
+        general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    };
+    let state = {
+        let bytes: [u8; 32] = rand::random();
+        hex::encode(bytes)
+    };
+    let challenge = {
+        let mut h = Sha256::new();
+        h.update(verifier.as_bytes());
+        general_purpose::URL_SAFE_NO_PAD.encode(h.finalize())
+    };
+
+    let redirect = format!("http://localhost:{}/callback", OAUTH_REDIRECT_PORT);
+    let auth_url = format!(
+        "{}?code=true&client_id={}&response_type=code&redirect_uri={}&scope={}&code_challenge={}&code_challenge_method=S256&state={}",
+        ANTHROPIC_AUTH_URL,
+        ANTHROPIC_CLIENT_ID,
+        urlencoding::encode(&redirect),
+        urlencoding::encode(ANTHROPIC_AUTH_SCOPE),
+        challenge,
+        state
+    );
+
+    open::that(&auth_url).map_err(|e| format!("failed to open browser: {}", e))?;
+
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", OAUTH_REDIRECT_PORT))
+        .map_err(|e| e.to_string())?;
+    let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 2048];
+    stream.read(&mut buf).map_err(|e| e.to_string())?;
+    let req = String::from_utf8_lossy(&buf);
+
+    let recv_state = extract_param(&req, "state")?;
+    if recv_state != state {
+        return Err("state mismatch".into());
+    }
+    let code = extract_param(&req, "code")?;
+
+    let _ = stream.write_all(
+        b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Login successful! You can close this tab.</h1></body></html>"
+    );
+
+    let body = json!({
+        "code": code,
+        "state": state,
+        "grant_type": "authorization_code",
+        "client_id": ANTHROPIC_CLIENT_ID,
+        "redirect_uri": redirect,
+        "code_verifier": verifier
+    });
+
+    let resp = reqwest::Client::new()
+        .post(ANTHROPIC_TOKEN_URL)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    let token: TokenResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("parse error: {} — body: {}", e, text))?;
+
+    let creds = Credentials {
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+    };
+    save_credentials(&creds)?;
+    Ok(creds)
+}
+
+// --- Usage API ---
+
+pub async fn get_usage(access_token: &str) -> Result<UsageResponse, String> {
+    let resp = reqwest::Client::new()
+        .get(CLAUDE_USAGE_URL)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("anthropic-beta", "oauth-2025-04-20")
+        .header("User-Agent", "claude-monitor/0.1.0")
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+
+    if !status.is_success() {
+        warn!("usage API returned {}: {}", status, text);
+        return Err(format!("API error {}: {}", status, text));
+    }
+
+    serde_json::from_str(&text)
+        .map_err(|e| format!("parse error: {} — body: {}", e, text))
+}
