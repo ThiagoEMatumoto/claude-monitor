@@ -64,7 +64,7 @@ function updateBars(data) {
 }
 
 function setBar(id, value, resetsAt) {
-	const pct = (value ?? 0) * 100;
+	const pct = value ?? 0;
 	const fill = $(`bar-${id}`);
 	const val = $(`val-${id}`);
 	const reset = $(`reset-${id}`);
@@ -79,7 +79,7 @@ function setBar(id, value, resetsAt) {
 }
 
 function setModelBar(model, value) {
-	const pct = (value ?? 0) * 100;
+	const pct = value ?? 0;
 	const fill = $(`bar-${model}`);
 	const val = $(`val-${model}`);
 	fill.style.width = `${Math.min(pct, 100)}%`;
@@ -119,10 +119,10 @@ async function getDb() {
 async function saveSnapshot(data) {
 	try {
 		const d = await getDb();
-		const fiveHourPct = (data.fiveHour ?? 0) * 100;
-		const sevenDayPct = (data.sevenDay ?? 0) * 100;
-		const sonnetPct = (data.sonnet ?? 0) * 100;
-		const opusPct = (data.opus ?? 0) * 100;
+		const fiveHourPct = data.fiveHour ?? 0;
+		const sevenDayPct = data.sevenDay ?? 0;
+		const sonnetPct = data.sonnet ?? 0;
+		const opusPct = data.opus ?? 0;
 		await d.execute(
 			"INSERT INTO snapshots (five_hour, seven_day, sonnet, opus) VALUES ($1, $2, $3, $4)",
 			[fiveHourPct, sevenDayPct, sonnetPct, opusPct],
@@ -243,10 +243,7 @@ async function checkAlerts(data) {
 		console.warn("checkAlerts config read failed:", e);
 	}
 
-	const maxUsage = Math.max(
-		(data.fiveHour ?? 0) * 100,
-		(data.sevenDay ?? 0) * 100,
-	);
+	const maxUsage = Math.max(data.fiveHour ?? 0, data.sevenDay ?? 0);
 
 	if (maxUsage >= crit) {
 		alertBar.className = "alert-bar";
