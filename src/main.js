@@ -48,6 +48,7 @@ async function refresh() {
 		await saveSnapshot(data);
 		await renderChart();
 		checkAlerts(data);
+		updateTrayMenu(data);
 	} catch (e) {
 		console.error("refresh failed:", e);
 		if (String(e).includes("not authenticated")) {
@@ -61,6 +62,21 @@ function updateBars(data) {
 	setBar("7d", data.sevenDay, data.sevenDayResetsAt);
 	setModelBar("sonnet", data.sonnet);
 	setModelBar("opus", data.opus);
+}
+
+function updateTrayMenu(data) {
+	invoke("update_tray_menu", {
+		fiveHour: data.fiveHour ?? 0,
+		sevenDay: data.sevenDay ?? 0,
+		fiveHourReset: data.fiveHourResetsAt
+			? `in ${formatTimeUntil(data.fiveHourResetsAt)}`
+			: null,
+		sevenDayReset: data.sevenDayResetsAt
+			? `in ${formatTimeUntil(data.sevenDayResetsAt)}`
+			: null,
+		sonnet: data.sonnet ?? null,
+		opus: data.opus ?? null,
+	}).catch((e) => console.warn("updateTrayMenu failed:", e));
 }
 
 function setBar(id, value, resetsAt) {
@@ -352,8 +368,24 @@ async function loadSettings() {
 	}
 }
 
+// === Auto-hide on focus loss (popup behavior) ===
+// Disabled: conflicts with drag-to-move. Use tray menu or Escape to hide.
+function setupAutoHide() {
+	window.addEventListener("keydown", async (e) => {
+		if (e.key === "Escape") {
+			try {
+				const { getCurrentWindow } = await import("@tauri-apps/api/window");
+				await getCurrentWindow().hide();
+			} catch (err) {
+				console.warn("hide failed:", err);
+			}
+		}
+	});
+}
+
 // === Start ===
 document.addEventListener("DOMContentLoaded", () => {
 	init();
 	loadSettings();
+	setupAutoHide();
 });

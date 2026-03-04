@@ -6,7 +6,7 @@ mod commands;
 use commands::AppState;
 use std::sync::Mutex;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Manager,
 };
@@ -55,31 +55,57 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .manage(AppState {
             credentials: Mutex::new(initial_creds),
+            tray_menu: Mutex::new(None),
         })
         .setup(|app| {
-            let show = MenuItem::with_id(app, "show", "Show Monitor", true, None::<&str>)?;
+            let session_display = MenuItem::with_id(app, "session_display", "🟢 Session: --%", false, None::<&str>)?;
+            let session_reset = MenuItem::with_id(app, "session_reset", "    resets in --", false, None::<&str>)?;
+            let weekly_display = MenuItem::with_id(app, "weekly_display", "🟢 Weekly: --%", false, None::<&str>)?;
+            let weekly_reset = MenuItem::with_id(app, "weekly_reset", "    resets in --", false, None::<&str>)?;
+            let sep1 = PredefinedMenuItem::separator(app)?;
+            let sonnet_display = MenuItem::with_id(app, "sonnet_display", "    Sonnet: --%", false, None::<&str>)?;
+            let opus_display = MenuItem::with_id(app, "opus_display", "    Opus: --%", false, None::<&str>)?;
+            let sep2 = PredefinedMenuItem::separator(app)?;
+            let show_details = MenuItem::with_id(app, "show_details", "Show Details…", true, None::<&str>)?;
+            let sep3 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show, &quit])?;
+            let menu = Menu::with_items(app, &[
+                &session_display, &session_reset,
+                &weekly_display, &weekly_reset,
+                &sep1,
+                &sonnet_display, &opus_display,
+                &sep2, &show_details,
+                &sep3, &quit,
+            ])?;
 
-            let _tray = TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
+            // Store menu reference for dynamic updates
+            let state = app.state::<AppState>();
+            if let Ok(mut guard) = state.tray_menu.lock() {
+                *guard = Some(menu.clone());
+            }
+
+            let icon_bytes = include_bytes!("../icons/32x32.png");
+            let icon_img = tauri::image::Image::from_bytes(icon_bytes)
+                .expect("failed to load tray icon");
+
+            let tray = TrayIconBuilder::with_id("main-tray")
+                .icon(icon_img)
                 .title("Claude Monitor")
                 .tooltip("Claude Monitor")
                 .menu(&menu)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
-                    "show" => {
+                    "show_details" => {
                         if let Some(win) = app.get_webview_window("panel") {
                             if win.is_visible().unwrap_or(false) {
                                 let _ = win.hide();
                             } else {
-                                // Position at top-right, below GNOME panel (~32px)
+                                // Fixed top-right positioning (cursor_position unreliable on GNOME/Wayland)
                                 if let Ok(Some(monitor)) = win.current_monitor() {
                                     let screen = monitor.size();
-                                    let pos = monitor.position();
-                                    let size = win.outer_size().unwrap_or(tauri::PhysicalSize::new(340, 520));
+                                    let mon_pos = monitor.position();
                                     let scale = monitor.scale_factor();
-                                    let x = pos.x + (screen.width as i32) - (size.width as i32) - (8.0 * scale) as i32;
-                                    let y = pos.y + (32.0 * scale) as i32;
+                                    let x = mon_pos.x + screen.width as i32 - 340 - (8.0 * scale) as i32;
+                                    let y = mon_pos.y + (32.0 * scale) as i32;
                                     let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
                                 }
                                 let _ = win.show();
@@ -92,6 +118,11 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Force GNOME to read fresh icon by bumping temp filename counter (0→1)
+            let refresh_icon = tauri::image::Image::from_bytes(icon_bytes)
+                .expect("failed to load tray icon");
+            tray.set_icon(Some(refresh_icon))?;
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -99,6 +130,7 @@ fn main() {
             commands::login,
             commands::is_authenticated,
             commands::logout,
+            commands::update_tray_menu,
         ])
         .run(tauri::generate_context!())
         .expect("error running claude-monitor");
