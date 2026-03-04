@@ -1,0 +1,294 @@
+/* === Reset & Base === */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: rgba(15, 15, 25, 0.95);
+  --surface: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: rgba(255, 255, 255, 0.9);
+  --text-dim: rgba(255, 255, 255, 0.45);
+  --green: #00e676;
+  --yellow: #ffab00;
+  --red: #ff5252;
+  --accent: #7c4dff;
+  --radius: 12px;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+#app {
+  background: var(--bg);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 340px;
+  max-height: 520px;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+/* === Scrollbar === */
+#app::-webkit-scrollbar {
+  width: 4px;
+}
+#app::-webkit-scrollbar-track {
+  background: transparent;
+}
+#app::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+/* === Header === */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.logo {
+  font-size: 18px;
+  color: var(--accent);
+}
+.title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+}
+.header-right {
+  display: flex;
+  gap: 4px;
+}
+
+.icon-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.icon-btn:hover {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* === Sections === */
+.section {
+  padding: 12px 16px;
+}
+.hidden {
+  display: none !important;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 12px 0;
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+/* === Usage Bars === */
+.usage-group {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.usage-row.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.usage-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.label-text {
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 56px;
+}
+.label-value {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--surface);
+  border-radius: 4px;
+  overflow: hidden;
+  flex: 1;
+}
+.progress-bar.small {
+  height: 6px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition:
+    width 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.4s ease;
+  background: var(--green);
+}
+
+.progress-fill.warning {
+  background: var(--yellow);
+}
+.progress-fill.critical {
+  background: var(--red);
+}
+
+.usage-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* === Chart === */
+#chart {
+  width: 100%;
+  height: 120px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+/* === Alert Bar === */
+.alert-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 171, 0, 0.08);
+  border: 1px solid rgba(255, 171, 0, 0.15);
+  font-size: 12px;
+  color: var(--yellow);
+}
+.alert-bar.ok {
+  background: rgba(0, 230, 118, 0.06);
+  border-color: rgba(0, 230, 118, 0.12);
+  color: var(--green);
+}
+
+.alert-icon {
+  font-size: 14px;
+}
+
+/* === Login === */
+#login-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 40px 16px;
+}
+.login-text {
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* === Buttons === */
+.btn-primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  width: 100%;
+}
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+.btn-danger {
+  background: rgba(255, 82, 82, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(255, 82, 82, 0.2);
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* === Settings === */
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.setting-row label {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.input-group input {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 4px 8px;
+  width: 64px;
+  font-size: 13px;
+  text-align: right;
+}
+.input-group span {
+  font-size: 11px;
+  color: var(--text-dim);
+}

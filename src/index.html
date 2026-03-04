@@ -2,38 +2,144 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/main.js" defer></script>
+    <title>Claude Monitor</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
-
-      <div class="row">
-        <a href="https://tauri.app" target="_blank">
-          <img src="/assets/tauri.svg" class="logo tauri" alt="Tauri logo" />
-        </a>
-        <a
-          href="https://developer.mozilla.org/en-US/docs/Web/JavaScript"
-          target="_blank"
-        >
-          <img
-            src="/assets/javascript.svg"
-            class="logo vanilla"
-            alt="JavaScript logo"
-          />
-        </a>
+    <div id="app">
+      <!-- Header -->
+      <div class="header">
+        <div class="header-left">
+          <span class="logo">&#x2B21;</span>
+          <span class="title">Claude Monitor</span>
+        </div>
+        <div class="header-right">
+          <button id="btn-refresh" class="icon-btn" title="Refresh">
+            &#x21BB;
+          </button>
+          <button id="btn-settings" class="icon-btn" title="Settings">
+            &#x2699;
+          </button>
+        </div>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+      <!-- Login Screen -->
+      <div id="login-screen" class="section hidden">
+        <p class="login-text">Connect your Claude account to see usage</p>
+        <button id="btn-login" class="btn-primary">Login with Claude</button>
+      </div>
+
+      <!-- Usage Bars -->
+      <div id="usage-section" class="section hidden">
+        <div class="usage-group">
+          <div class="usage-row">
+            <div class="usage-label">
+              <span class="label-text">Session (5h)</span>
+              <span class="label-value" id="val-5h">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="bar-5h" style="width: 0%"></div>
+            </div>
+            <div class="usage-meta" id="reset-5h">Resets in &mdash;</div>
+          </div>
+
+          <div class="usage-row">
+            <div class="usage-label">
+              <span class="label-text">Weekly (7d)</span>
+              <span class="label-value" id="val-7d">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="bar-7d" style="width: 0%"></div>
+            </div>
+            <div class="usage-meta" id="reset-7d">Resets in &mdash;</div>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+        <div class="section-title">By Model</div>
+
+        <div class="usage-group">
+          <div class="usage-row compact">
+            <span class="label-text">Sonnet</span>
+            <div class="progress-bar small">
+              <div
+                class="progress-fill"
+                id="bar-sonnet"
+                style="width: 0%"
+              ></div>
+            </div>
+            <span class="label-value" id="val-sonnet">0%</span>
+          </div>
+          <div class="usage-row compact">
+            <span class="label-text">Opus</span>
+            <div class="progress-bar small">
+              <div class="progress-fill" id="bar-opus" style="width: 0%"></div>
+            </div>
+            <span class="label-value" id="val-opus">0%</span>
+          </div>
+        </div>
+
+        <!-- History Chart -->
+        <div class="divider"></div>
+        <div class="section-title">Usage History (7d)</div>
+        <canvas id="chart" width="300" height="120"></canvas>
+
+        <!-- Alert Status -->
+        <div class="divider"></div>
+        <div class="alert-bar" id="alert-bar">
+          <span class="alert-icon">&#x26A0;</span>
+          <span id="alert-text">Alert at 75% usage</span>
+        </div>
+      </div>
+
+      <!-- Settings Panel -->
+      <div id="settings-section" class="section hidden">
+        <div class="section-title">Settings</div>
+        <div class="setting-row">
+          <label>Warning alert at</label>
+          <div class="input-group">
+            <input
+              type="number"
+              id="cfg-warning"
+              min="10"
+              max="100"
+              value="75"
+            />
+            <span>%</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label>Critical alert at</label>
+          <div class="input-group">
+            <input
+              type="number"
+              id="cfg-critical"
+              min="10"
+              max="100"
+              value="90"
+            />
+            <span>%</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label>Poll interval</label>
+          <div class="input-group">
+            <input
+              type="number"
+              id="cfg-interval"
+              min="60"
+              max="1800"
+              value="300"
+            />
+            <span>sec</span>
+          </div>
+        </div>
+        <button id="btn-save-settings" class="btn-primary">Save</button>
+        <button id="btn-logout" class="btn-danger">Logout</button>
+      </div>
+    </div>
+
+    <script src="main.js" type="module"></script>
   </body>
 </html>
