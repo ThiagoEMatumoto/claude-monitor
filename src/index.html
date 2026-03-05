@@ -24,6 +24,15 @@
         </div>
       </div>
 
+      <!-- Tab Bar -->
+      <div id="tab-bar" class="tab-bar hidden">
+        <button class="tab active" data-tab="usage">Usage</button>
+        <button class="tab" data-tab="sessions">
+          Sessions <span id="tab-badge" class="tab-badge hidden">0</span>
+        </button>
+        <button class="tab" data-tab="analytics">Analytics</button>
+      </div>
+
       <!-- Login Screen -->
       <div id="login-screen" class="section hidden">
         <p class="login-text">Connect your Claude account to see usage</p>
@@ -80,9 +89,35 @@
           </div>
         </div>
 
+        <!-- Credits (Extra Usage) -->
+        <div id="credits-section" class="hidden">
+          <div class="divider"></div>
+          <div class="section-title">Credits</div>
+          <div class="usage-row">
+            <div class="usage-label">
+              <span class="label-text"><span id="credits-used">$0.00</span> / <span id="credits-limit">$0.00</span></span>
+              <span class="label-value" id="val-credits">0%</span>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="bar-credits" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Burn Rate -->
+        <div id="burn-rate-section" class="hidden">
+          <div class="burn-rates"></div>
+        </div>
+
         <!-- History Chart -->
         <div class="divider"></div>
-        <div class="section-title">Usage History (7d)</div>
+        <div class="chart-header">
+          <span class="section-title" style="margin-bottom: 0">Usage History</span>
+          <div class="chart-range-toggle">
+            <button class="range-btn active" data-range="7">7d</button>
+            <button class="range-btn" data-range="30">30d</button>
+          </div>
+        </div>
         <canvas id="chart" width="300" height="120"></canvas>
 
         <!-- Alert Status -->
@@ -90,6 +125,62 @@
         <div class="alert-bar" id="alert-bar">
           <span class="alert-icon">&#x26A0;</span>
           <span id="alert-text">Alert at 75% usage</span>
+        </div>
+      </div>
+
+      <!-- Sessions Page -->
+      <div id="sessions-page" class="page hidden">
+        <div class="section">
+          <input
+            type="text"
+            id="session-search"
+            class="search-input"
+            placeholder="Filter sessions..."
+          />
+          <div id="sessions-list" class="sessions-list"></div>
+          <div id="sessions-empty" class="empty-state">
+            <span class="empty-icon">&#x2713;</span>
+            <span class="empty-text">No sessions waiting</span>
+          </div>
+          <div class="divider"></div>
+          <div class="section-title">Recent Sessions (24h)</div>
+          <div id="recent-sessions-list" class="sessions-list"></div>
+          <div id="recent-empty" class="empty-state hidden">
+            <span class="empty-text">No recent sessions</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Analytics Page -->
+      <div id="analytics-page" class="page hidden">
+        <div class="section">
+          <!-- Token Summary -->
+          <div id="analytics-tokens">
+            <div class="section-title">Token Usage (24h)</div>
+            <div id="token-summary" class="stat-pills"></div>
+            <div id="token-sessions-list" class="analytics-list"></div>
+          </div>
+
+          <!-- Cache Efficiency -->
+          <div class="divider"></div>
+          <div id="analytics-cache">
+            <div class="section-title">Cache Efficiency</div>
+            <div class="usage-row compact">
+              <span class="label-text">Hit Rate</span>
+              <div class="progress-bar small">
+                <div class="progress-fill" id="bar-cache" style="width: 0%"></div>
+              </div>
+              <span class="label-value" id="val-cache">0%</span>
+            </div>
+            <div class="usage-meta" id="cache-detail"></div>
+          </div>
+
+          <!-- Tool Usage -->
+          <div class="divider"></div>
+          <div id="analytics-tools">
+            <div class="section-title">Top Tools (24h)</div>
+            <div id="tool-stats-list" class="analytics-list"></div>
+          </div>
         </div>
       </div>
 
@@ -135,7 +226,14 @@
             <span>sec</span>
           </div>
         </div>
+        <div class="divider"></div>
+        <div class="setting-row">
+          <label>Turbo notifications</label>
+          <button id="btn-turbo" class="btn-toggle">Enable</button>
+        </div>
+        <div class="divider"></div>
         <button id="btn-save-settings" class="btn-primary">Save</button>
+        <button id="btn-export" class="btn-secondary">Export Data (CSV)</button>
         <button id="btn-logout" class="btn-danger">Logout</button>
       </div>
     </div>

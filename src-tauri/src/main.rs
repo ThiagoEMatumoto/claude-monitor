@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod analytics;
 mod claude;
 mod commands;
+mod config;
+mod sessions;
+mod tray_icon;
 
 use commands::AppState;
 use std::sync::Mutex;
@@ -42,6 +46,13 @@ fn main() {
             INSERT OR IGNORE INTO config (key, value) VALUES ('poll_interval_secs', '300');",
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: 3,
+            description: "add_extra_usage_columns",
+            sql: "ALTER TABLE snapshots ADD COLUMN extra_usage_pct REAL;
+                  ALTER TABLE snapshots ADD COLUMN used_credits REAL;",
+            kind: MigrationKind::Up,
+        },
     ];
 
     let initial_creds = claude::load_credentials();
@@ -57,7 +68,10 @@ fn main() {
             credentials: Mutex::new(initial_creds),
             tray_menu: Mutex::new(None),
         })
+        .manage(sessions::SessionsState::new())
         .setup(|app| {
+            let sessions_display = MenuItem::with_id(app, "sessions_display", "No sessions waiting", false, None::<&str>)?;
+            let sessions_sep = PredefinedMenuItem::separator(app)?;
             let session_display = MenuItem::with_id(app, "session_display", "🟢 Session: --%", false, None::<&str>)?;
             let session_reset = MenuItem::with_id(app, "session_reset", "    resets in --", false, None::<&str>)?;
             let weekly_display = MenuItem::with_id(app, "weekly_display", "🟢 Weekly: --%", false, None::<&str>)?;
@@ -70,6 +84,7 @@ fn main() {
             let sep3 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[
+                &sessions_display, &sessions_sep,
                 &session_display, &session_reset,
                 &weekly_display, &weekly_reset,
                 &sep1,
@@ -123,6 +138,9 @@ fn main() {
                 .expect("failed to load tray icon");
             tray.set_icon(Some(refresh_icon))?;
 
+            // Start session watcher
+            sessions::start_session_watcher(app.handle().clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -131,6 +149,18 @@ fn main() {
             commands::is_authenticated,
             commands::logout,
             commands::update_tray_menu,
+            commands::update_tray_icon,
+            commands::get_waiting_sessions,
+            commands::update_tray_sessions,
+            commands::play_sound,
+            commands::enable_turbo_mode,
+            commands::disable_turbo_mode,
+            commands::is_turbo_enabled,
+            commands::resume_session,
+            commands::get_recent_sessions,
+            commands::get_session_analytics,
+            commands::get_cache_stats,
+            commands::get_tool_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error running claude-monitor");

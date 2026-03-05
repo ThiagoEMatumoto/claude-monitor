@@ -1,5 +1,10 @@
+use crate::analytics;
 use crate::claude;
+use crate::sessions::{self, RecentSession, SessionsState, WaitingSession};
+use log::{info, warn};
 use serde::Serialize;
+use std::collections::HashSet;
+use std::process::Command;
 use std::sync::Mutex;
 use tauri::menu::Menu;
 use tauri::{State, Wry};
@@ -20,22 +25,14 @@ pub struct UsageData {
     pub opus_resets_at: Option<String>,
     pub sonnet: Option<f32>,
     pub sonnet_resets_at: Option<String>,
+    pub extra_usage_enabled: bool,
+    pub monthly_limit: Option<f64>,
+    pub used_credits: Option<f64>,
+    pub extra_usage_pct: Option<f32>,
 }
 
-#[tauri::command]
-pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> {
-    let token = {
-        let guard = state.credentials.lock().map_err(|e| e.to_string())?;
-        guard
-            .as_ref()
-            .ok_or("not authenticated")?
-            .access_token
-            .clone()
-    };
-
-    let usage = claude::get_usage(&token).await?;
-
-    Ok(UsageData {
+fn build_usage_data(usage: claude::UsageResponse) -> UsageData {
+    UsageData {
         five_hour: usage.five_hour.utilization,
         five_hour_resets_at: usage.five_hour.resets_at,
         seven_day: usage.seven_day.utilization,
@@ -44,7 +41,68 @@ pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> 
         opus_resets_at: usage.seven_day_opus.and_then(|p| p.resets_at),
         sonnet: usage.seven_day_sonnet.as_ref().map(|p| p.utilization),
         sonnet_resets_at: usage.seven_day_sonnet.and_then(|p| p.resets_at),
-    })
+        extra_usage_enabled: usage.extra_usage.is_enabled,
+        monthly_limit: usage.extra_usage.monthly_limit,
+        used_credits: usage.extra_usage.used_credits,
+        extra_usage_pct: usage.extra_usage.utilization,
+    }
+}
+
+/// Try to get fresh credentials, first from CLI file, then via own refresh.
+async fn refresh_credentials(state: &State<'_, AppState>, old_refresh_token: &str) -> Result<claude::Credentials, String> {
+    // 1. Re-read CLI file — instant, CLI likely refreshed the token already
+    if let Some(cli_creds) = claude::load_cli_credentials() {
+        if !cli_creds.is_expired(crate::config::TOKEN_REFRESH_BUFFER_SECS) {
+            info!("got fresh token from Claude CLI credentials");
+            let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            *guard = Some(cli_creds.clone());
+            return Ok(cli_creds);
+        }
+    }
+
+    // 2. Own refresh via API
+    info!("CLI credentials unavailable or expired, refreshing via API");
+    match claude::refresh_access_token(old_refresh_token).await {
+        Ok(new_creds) => {
+            let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            *guard = Some(new_creds.clone());
+            Ok(new_creds)
+        }
+        Err(e) => {
+            warn!("token refresh failed: {}", e);
+            let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            *guard = None;
+            claude::clear_credentials();
+            Err("not authenticated".into())
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> {
+    let creds = {
+        let guard = state.credentials.lock().map_err(|e| e.to_string())?;
+        guard.clone().ok_or("not authenticated")?
+    };
+
+    // Proactive: if token is expired/expiring, refresh before calling API
+    let creds = if creds.is_expired(crate::config::TOKEN_EXPIRY_BUFFER_SECS) {
+        refresh_credentials(&state, &creds.refresh_token).await?
+    } else {
+        creds
+    };
+
+    // Try API call
+    match claude::get_usage(&creds.access_token).await {
+        Ok(usage) => Ok(build_usage_data(usage)),
+        Err(e) if e.contains("401") => {
+            // Reactive: token rejected, refresh and retry
+            let new_creds = refresh_credentials(&state, &creds.refresh_token).await?;
+            let usage = claude::get_usage(&new_creds.access_token).await?;
+            Ok(build_usage_data(usage))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -126,4 +184,242 @@ pub fn update_tray_menu(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn update_tray_icon(app: tauri::AppHandle, max_usage: f32) -> Result<(), String> {
+    use crate::tray_icon::{UsageLevel, generate_icon};
+
+    let level = UsageLevel::from_pct(max_usage);
+    let png_bytes = generate_icon(level);
+    let icon = tauri::image::Image::from_bytes(&png_bytes)
+        .map_err(|e| format!("icon decode: {}", e))?;
+
+    if let Some(tray) = app.tray_by_id("main-tray") {
+        tray.set_icon(Some(icon)).map_err(|e| format!("set icon: {}", e))?;
+    }
+    Ok(())
+}
+
+// === Session Commands ===
+
+#[tauri::command]
+pub fn get_waiting_sessions(state: State<'_, SessionsState>) -> Vec<WaitingSession> {
+    state
+        .sessions
+        .lock()
+        .map(|s| s.values().cloned().collect())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn update_tray_sessions(
+    _app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    count: u32,
+) -> Result<(), String> {
+    let guard = state.tray_menu.lock().map_err(|e| e.to_string())?;
+    let menu = guard.as_ref().ok_or("tray menu not initialized")?;
+
+    fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
+        if let Some(item) = menu.get(id) {
+            if let Some(mi) = item.as_menuitem() {
+                let _ = mi.set_text(text);
+            }
+        }
+    }
+
+    let text = if count == 0 {
+        "No sessions waiting".to_string()
+    } else if count == 1 {
+        "1 session waiting".to_string()
+    } else {
+        format!("{} sessions waiting", count)
+    };
+
+    set_menu_text(menu, "sessions_display", &text);
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn play_sound() -> Result<(), String> {
+    let sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga";
+    if std::path::Path::new(sound).exists() {
+        Command::new("paplay")
+            .arg(sound)
+            .spawn()
+            .map_err(|e| format!("paplay: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn enable_turbo_mode() -> Result<(), String> {
+    sessions::enable_turbo()
+}
+
+#[tauri::command]
+pub fn disable_turbo_mode() -> Result<(), String> {
+    sessions::disable_turbo()
+}
+
+#[tauri::command]
+pub fn is_turbo_enabled() -> bool {
+    sessions::is_turbo_enabled_check()
+}
+
+// === Resume & Recent Sessions ===
+
+/// Find an available terminal emulator.
+fn find_terminal() -> Option<String> {
+    let candidates = [
+        "gnome-terminal",
+        "x-terminal-emulator",
+        "konsole",
+        "xfce4-terminal",
+        "xterm",
+    ];
+    for term in &candidates {
+        if Command::new("which")
+            .arg(term)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+        {
+            return Some(term.to_string());
+        }
+    }
+    None
+}
+
+/// Shell-escape a string using POSIX single-quote escaping.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[tauri::command]
+pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
+    // Validate cwd
+    let cwd_path = std::path::Path::new(&cwd);
+    if !cwd_path.is_dir() {
+        return Err(format!("directory does not exist: {}", cwd));
+    }
+
+    let terminal = find_terminal().ok_or("no terminal emulator found")?;
+    let escaped_id = shell_escape(&session_id);
+    let escaped_cwd = shell_escape(&cwd);
+    let bash_cmd = format!("unset CLAUDECODE; claude -r {}; exec bash", escaped_id);
+
+    info!("Resuming session {} in {} via {}", session_id, cwd, terminal);
+
+    let result = match terminal.as_str() {
+        "gnome-terminal" => Command::new(&terminal)
+            .arg(format!("--working-directory={}", cwd))
+            .arg("--")
+            .args(["bash", "-c", &bash_cmd])
+            .spawn(),
+        "konsole" => Command::new(&terminal)
+            .arg("--workdir")
+            .arg(&cwd)
+            .arg("-e")
+            .args(["bash", "-c", &bash_cmd])
+            .spawn(),
+        "xfce4-terminal" => Command::new(&terminal)
+            .arg(format!("--working-directory={}", cwd))
+            .arg("-e")
+            .arg(&format!("bash -c {}", shell_escape(&bash_cmd)))
+            .spawn(),
+        "xterm" => Command::new(&terminal)
+            .arg("-e")
+            .arg(&format!("cd {} && {}", escaped_cwd, bash_cmd))
+            .spawn(),
+        _ => Command::new(&terminal)
+            .arg("-e")
+            .args(["bash", "-c", &format!("cd {} && {}", escaped_cwd, bash_cmd)])
+            .spawn(),
+    };
+
+    result
+        .map(|_| ())
+        .map_err(|e| format!("failed to spawn terminal: {}", e))
+}
+
+#[tauri::command]
+pub fn get_recent_sessions(state: State<'_, SessionsState>) -> Vec<RecentSession> {
+    let waiting_ids: HashSet<String> = state
+        .sessions
+        .lock()
+        .map(|s| s.keys().cloned().collect())
+        .unwrap_or_default();
+    sessions::list_recent_sessions(&waiting_ids)
+}
+
+// === Analytics Commands ===
+
+#[tauri::command]
+pub fn get_session_analytics(hours: u64) -> analytics::AggregateTokenStats {
+    analytics::get_session_analytics(hours)
+}
+
+#[tauri::command]
+pub fn get_cache_stats(hours: u64) -> analytics::CacheStats {
+    analytics::get_cache_stats(hours)
+}
+
+#[tauri::command]
+pub fn get_tool_stats(hours: u64) -> Vec<analytics::ToolStats> {
+    analytics::get_tool_stats(hours)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_usage(extra_enabled: bool, limit: Option<f64>, used: Option<f64>, util: Option<f32>) -> claude::UsageResponse {
+        claude::UsageResponse {
+            five_hour: claude::UsagePeriod { utilization: 42.0, resets_at: Some("2026-01-01T12:00:00Z".into()) },
+            seven_day: claude::UsagePeriod { utilization: 55.0, resets_at: Some("2026-01-07T00:00:00Z".into()) },
+            seven_day_oauth_apps: None,
+            seven_day_opus: Some(claude::UsagePeriod { utilization: 30.0, resets_at: None }),
+            seven_day_sonnet: Some(claude::UsagePeriod { utilization: 60.0, resets_at: None }),
+            seven_day_cowork: None,
+            iguana_necktie: None,
+            seven_day_iguana_necktie: None,
+            extra_usage: claude::ExtraUsage {
+                is_enabled: extra_enabled,
+                monthly_limit: limit,
+                used_credits: used,
+                utilization: util,
+            },
+            extra: serde_json::Value::Object(serde_json::Map::new()),
+        }
+    }
+
+    #[test]
+    fn test_build_usage_data_extra_usage_enabled() {
+        let data = build_usage_data(make_usage(true, Some(100.0), Some(42.5), Some(0.425)));
+        assert!(data.extra_usage_enabled);
+        assert_eq!(data.monthly_limit, Some(100.0));
+        assert_eq!(data.used_credits, Some(42.5));
+        assert_eq!(data.extra_usage_pct, Some(0.425));
+    }
+
+    #[test]
+    fn test_build_usage_data_extra_usage_disabled() {
+        let data = build_usage_data(make_usage(false, None, None, None));
+        assert!(!data.extra_usage_enabled);
+        assert_eq!(data.monthly_limit, None);
+        assert_eq!(data.used_credits, None);
+        assert_eq!(data.extra_usage_pct, None);
+    }
+
+    #[test]
+    fn test_build_usage_data_base_fields() {
+        let data = build_usage_data(make_usage(false, None, None, None));
+        assert_eq!(data.five_hour, 42.0);
+        assert_eq!(data.seven_day, 55.0);
+        assert_eq!(data.opus, Some(30.0));
+        assert_eq!(data.sonnet, Some(60.0));
+    }
 }
