@@ -19,6 +19,25 @@ pub const OAUTH_REDIRECT_PORT: u16 = 54546;
 pub struct Credentials {
     pub access_token: String,
     pub refresh_token: String,
+    #[serde(default)]
+    pub expires_at: Option<i64>,
+}
+
+impl Credentials {
+    /// Returns true if the token expires within `buffer_secs` seconds.
+    /// Returns false if expiry is unknown (legacy credentials).
+    pub fn is_expired(&self, buffer_secs: i64) -> bool {
+        match self.expires_at {
+            Some(exp) => {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                now + buffer_secs >= exp
+            }
+            None => false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -58,7 +77,39 @@ pub struct UsageResponse {
     pub extra: serde_json::Value,
 }
 
-// --- Credentials ---
+// --- CLI Credentials (primary source) ---
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliOAuthCredentials {
+    access_token: String,
+    refresh_token: String,
+    expires_at: Option<i64>, // milliseconds
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CliCredentialsFile {
+    claude_ai_oauth: Option<CliOAuthCredentials>,
+}
+
+/// Load credentials from the Claude CLI file (~/.claude/.credentials.json).
+/// The CLI keeps this token fresh automatically, so it's the preferred source.
+pub fn load_cli_credentials() -> Option<Credentials> {
+    let home = std::env::var("HOME").ok()?;
+    let path = PathBuf::from(&home).join(".claude/.credentials.json");
+    let data = fs::read_to_string(&path).ok()?;
+    let file: CliCredentialsFile = serde_json::from_str(&data).ok()?;
+    let oauth = file.claude_ai_oauth?;
+    info!("loaded credentials from Claude CLI: {:?}", path);
+    Some(Credentials {
+        access_token: oauth.access_token,
+        refresh_token: oauth.refresh_token,
+        expires_at: oauth.expires_at.map(|ms| ms / 1000), // ms → seconds
+    })
+}
+
+// --- Own Credentials (fallback) ---
 
 fn config_dir() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
@@ -66,6 +117,12 @@ fn config_dir() -> PathBuf {
 }
 
 pub fn load_credentials() -> Option<Credentials> {
+    // 1. Claude CLI credentials (primary — always fresh)
+    if let Some(creds) = load_cli_credentials() {
+        return Some(creds);
+    }
+
+    // 2. Own credentials
     let own_path = config_dir().join("credentials.json");
     if let Ok(data) = fs::read_to_string(&own_path) {
         if let Ok(creds) = serde_json::from_str(&data) {
@@ -74,7 +131,7 @@ pub fn load_credentials() -> Option<Credentials> {
         }
     }
 
-    // Fallback to claude-tray credentials
+    // 3. Legacy claude-tray credentials
     let home = std::env::var("HOME").ok()?;
     let tray_path = PathBuf::from(&home).join(".config/claude-tray/credentials.json");
     if let Ok(data) = fs::read_to_string(&tray_path) {
@@ -169,7 +226,12 @@ pub async fn oauth_login() -> Result<Credentials, String> {
         "code_verifier": verifier
     });
 
-    let resp = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .timeout(crate::config::HTTP_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
         .post(ANTHROPIC_TOKEN_URL)
         .header("Content-Type", "application/json")
         .json(&body)
@@ -181,18 +243,76 @@ pub async fn oauth_login() -> Result<Credentials, String> {
     let token: TokenResponse = serde_json::from_str(&text)
         .map_err(|e| format!("parse error: {} — body: {}", e, text))?;
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
     let creds = Credentials {
         access_token: token.access_token,
         refresh_token: token.refresh_token,
+        expires_at: Some(now + token.expires_in as i64),
     };
     save_credentials(&creds)?;
+    Ok(creds)
+}
+
+// --- Token Refresh ---
+
+pub async fn refresh_access_token(refresh_token: &str) -> Result<Credentials, String> {
+    let body = json!({
+        "grant_type": "refresh_token",
+        "refresh_token": refresh_token,
+        "client_id": ANTHROPIC_CLIENT_ID,
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(crate::config::HTTP_TIMEOUT)
+        .build()
+        .map_err(|e| format!("refresh client build failed: {}", e))?;
+
+    let resp = client
+        .post(ANTHROPIC_TOKEN_URL)
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("refresh request failed: {}", e))?;
+
+    let status = resp.status();
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+
+    if !status.is_success() {
+        warn!("token refresh failed {}: {}", status, text);
+        return Err(format!("refresh failed {}: {}", status, text));
+    }
+
+    let token: TokenResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("refresh parse error: {} — body: {}", e, text))?;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    let creds = Credentials {
+        access_token: token.access_token,
+        refresh_token: token.refresh_token,
+        expires_at: Some(now + token.expires_in as i64),
+    };
+    save_credentials(&creds)?;
+    info!("access token refreshed successfully");
     Ok(creds)
 }
 
 // --- Usage API ---
 
 pub async fn get_usage(access_token: &str) -> Result<UsageResponse, String> {
-    let resp = reqwest::Client::new()
+    let client = reqwest::Client::builder()
+        .timeout(crate::config::HTTP_TIMEOUT)
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
         .get(CLAUDE_USAGE_URL)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("anthropic-beta", "oauth-2025-04-20")
@@ -203,13 +323,88 @@ pub async fn get_usage(access_token: &str) -> Result<UsageResponse, String> {
         .map_err(|e| e.to_string())?;
 
     let status = resp.status();
+    let status_code = status.as_u16();
     let text = resp.text().await.map_err(|e| e.to_string())?;
 
     if !status.is_success() {
         warn!("usage API returned {}: {}", status, text);
-        return Err(format!("API error {}: {}", status, text));
+        return Err(format!("{}: {}", status_code, text));
     }
 
     serde_json::from_str(&text)
         .map_err(|e| format!("parse error: {} — body: {}", e, text))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_credentials_not_expired() {
+        let future = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 3600;
+        let creds = Credentials {
+            access_token: "test".into(),
+            refresh_token: "test".into(),
+            expires_at: Some(future),
+        };
+        assert!(!creds.is_expired(60));
+    }
+
+    #[test]
+    fn test_credentials_expired() {
+        let past = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 100;
+        let creds = Credentials {
+            access_token: "test".into(),
+            refresh_token: "test".into(),
+            expires_at: Some(past),
+        };
+        assert!(creds.is_expired(0));
+    }
+
+    #[test]
+    fn test_credentials_no_expiry() {
+        let creds = Credentials {
+            access_token: "test".into(),
+            refresh_token: "test".into(),
+            expires_at: None,
+        };
+        assert!(!creds.is_expired(300));
+    }
+
+    #[test]
+    fn test_credentials_expiring_within_buffer() {
+        let soon = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            + 30;
+        let creds = Credentials {
+            access_token: "test".into(),
+            refresh_token: "test".into(),
+            expires_at: Some(soon),
+        };
+        assert!(creds.is_expired(60)); // within buffer
+        assert!(!creds.is_expired(10)); // outside buffer
+    }
+
+    #[test]
+    fn test_extract_param_success() {
+        let req = "GET /callback?code=abc123&state=xyz HTTP/1.1";
+        assert_eq!(extract_param(req, "code").unwrap(), "abc123");
+        assert_eq!(extract_param(req, "state").unwrap(), "xyz");
+    }
+
+    #[test]
+    fn test_extract_param_not_found() {
+        let req = "GET /callback?code=abc HTTP/1.1";
+        assert!(extract_param(req, "missing").is_err());
+    }
 }
