@@ -90,18 +90,18 @@ export async function getDb() {
 export async function invokeWithRetry(
 	cmd,
 	args,
-	{ retries = 3, baseDelay = 2000 } = {},
+	{ retries = 2, baseDelay = 30000 } = {},
 ) {
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
 			return await invoke(cmd, args);
 		} catch (e) {
 			const err = String(e);
-			const isRateLimit = err.startsWith("429:");
+			const isRateLimit = err.includes("429");
 			if (!isRateLimit || attempt === retries) throw e;
 			const delay = baseDelay * Math.pow(2, attempt);
 			console.warn(
-				`${cmd} rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`,
+				`${cmd} rate limited, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${retries})`,
 			);
 			await new Promise((r) => setTimeout(r, delay));
 		}

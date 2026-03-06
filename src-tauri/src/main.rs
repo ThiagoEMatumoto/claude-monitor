@@ -16,8 +16,41 @@ use tauri::{
 };
 use tauri_plugin_sql::{Migration, MigrationKind};
 
+use std::fs;
+use std::io::Write;
+
+/// Acquire a lockfile to prevent duplicate instances.
+/// Returns the File handle (lock held while alive) or exits if another instance is running.
+fn acquire_singleton_lock() -> fs::File {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+    let lock_path = std::path::PathBuf::from(home).join(".config/claude-monitor/singleton.lock");
+    let _ = fs::create_dir_all(lock_path.parent().unwrap());
+
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&lock_path)
+        .expect("failed to open lockfile");
+
+    use std::os::unix::io::AsRawFd;
+    let fd = file.as_raw_fd();
+    let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+    if ret != 0 {
+        eprintln!("claude-monitor: another instance is already running, exiting.");
+        std::process::exit(0);
+    }
+
+    // Write PID for debugging
+    let mut f = file.try_clone().expect("clone lockfile");
+    let _ = write!(f, "{}", std::process::id());
+
+    file
+}
+
 fn main() {
     env_logger::init();
+    let _lock = acquire_singleton_lock();
 
     let migrations = vec![
         Migration {

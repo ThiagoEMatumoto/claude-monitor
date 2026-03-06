@@ -5,6 +5,7 @@ let pollTimer = null;
 let basePollInterval = 300;
 let activePollInterval = 300;
 let lastNotifTime = 0;
+let rateLimitedUntil = 0;
 
 export function setBasePollInterval(interval) {
 	basePollInterval = interval;
@@ -27,6 +28,10 @@ export function stopPolling() {
 }
 
 export async function refresh() {
+	if (Date.now() < rateLimitedUntil) {
+		console.warn(`rate limited, skipping refresh until ${new Date(rateLimitedUntil).toLocaleTimeString()}`);
+		return "rate_limited";
+	}
 	try {
 		const data = await invokeWithRetry("get_usage");
 		updateBars(data);
@@ -38,6 +43,12 @@ export async function refresh() {
 		adaptPolling(data);
 	} catch (e) {
 		console.error("refresh failed:", e);
+		if (String(e).includes("429")) {
+			rateLimitedUntil = Date.now() + 5 * 60 * 1000;
+			console.warn("rate limited by API, backing off for 5 minutes");
+			startPolling(basePollInterval);
+			return "rate_limited";
+		}
 		if (String(e).includes("not authenticated")) {
 			return "not_authenticated";
 		}
