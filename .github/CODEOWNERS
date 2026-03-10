@@ -1,0 +1,9 @@
+# Global owners — all PRs require approval from maintainers
+* @ThiagoEMatumoto
+
+# Security-critical paths — require explicit owner review
+/.github/         @ThiagoEMatumoto
+/src-tauri/src/claude.rs   @ThiagoEMatumoto
+/src-tauri/src/config.rs   @ThiagoEMatumoto
+/src-tauri/Cargo.toml      @ThiagoEMatumoto
+/src-tauri/Cargo.lock      @ThiagoEMatumoto
