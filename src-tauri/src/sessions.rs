@@ -106,11 +106,27 @@ fn claude_processes_running() -> bool {
         .unwrap_or(false)
 }
 
-/// Play notification sound using paplay (PulseAudio) or aplay fallback.
+/// Play notification sound using platform-appropriate tools.
 fn play_notification_sound() {
-    let sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga";
-    if Path::new(sound).exists() {
-        let _ = Command::new("paplay").arg(sound).spawn();
+    if cfg!(target_os = "macos") {
+        // macOS: use afplay with system sounds
+        let candidates = [
+            "/System/Library/Sounds/Glass.aiff",
+            "/System/Library/Sounds/Ping.aiff",
+            "/System/Library/Sounds/Pop.aiff",
+        ];
+        for sound in &candidates {
+            if Path::new(sound).exists() {
+                let _ = Command::new("afplay").arg(sound).spawn();
+                return;
+            }
+        }
+    } else {
+        // Linux: use paplay with freedesktop sounds
+        let sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga";
+        if Path::new(sound).exists() {
+            let _ = Command::new("paplay").arg(sound).spawn();
+        }
     }
 }
 
