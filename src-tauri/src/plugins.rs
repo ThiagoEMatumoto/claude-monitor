@@ -125,9 +125,7 @@ pub fn list_plugins() -> Vec<PluginInfo> {
 
     // 2. Read settings.json for enabled state
     let settings: Option<SettingsFile> = read_json(&settings_path());
-    let enabled_map = settings
-        .map(|s| s.enabled_plugins)
-        .unwrap_or_default();
+    let enabled_map = settings.map(|s| s.enabled_plugins).unwrap_or_default();
 
     // 3. Read blocklist
     let blocklist_path = claude.join("plugins/blocklist.json");
@@ -188,9 +186,7 @@ pub fn list_plugins() -> Vec<PluginInfo> {
     }
 
     // Sort: enabled first, then alphabetically
-    plugins.sort_by(|a, b| {
-        b.enabled.cmp(&a.enabled).then_with(|| a.name.cmp(&b.name))
-    });
+    plugins.sort_by(|a, b| b.enabled.cmp(&a.enabled).then_with(|| a.name.cmp(&b.name)));
 
     plugins
 }
@@ -286,10 +282,7 @@ pub fn set_plugin_enabled(plugin_id: &str, enabled: bool) -> Result<(), String> 
         .ok_or("enabledPlugins is not an object")?;
 
     if enabled {
-        ep_obj.insert(
-            plugin_id.to_string(),
-            serde_json::Value::Bool(true),
-        );
+        ep_obj.insert(plugin_id.to_string(), serde_json::Value::Bool(true));
     } else {
         ep_obj.remove(plugin_id);
     }
@@ -409,8 +402,14 @@ mod tests {
 
     #[test]
     fn test_extract_plugin_not_a_plugin() {
-        assert_eq!(extract_plugin_from_tool("mcp__context7__resolve-library-id"), None);
-        assert_eq!(extract_plugin_from_tool("mcp__slack__slack_send_message"), None);
+        assert_eq!(
+            extract_plugin_from_tool("mcp__context7__resolve-library-id"),
+            None
+        );
+        assert_eq!(
+            extract_plugin_from_tool("mcp__slack__slack_send_message"),
+            None
+        );
         assert_eq!(extract_plugin_from_tool("Read"), None);
         assert_eq!(extract_plugin_from_tool("Bash"), None);
     }
