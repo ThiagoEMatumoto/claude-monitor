@@ -296,14 +296,32 @@ pub fn update_tray_sessions(
 
 #[tauri::command]
 pub fn play_sound() -> Result<(), String> {
-    let sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga";
-    if std::path::Path::new(sound).exists() {
-        Command::new("paplay")
-            .arg(sound)
-            .spawn()
-            .map_err(|e| format!("paplay: {}", e))?;
-    }
+    play_system_sound();
     Ok(())
+}
+
+/// Play a notification sound using platform-appropriate tools.
+fn play_system_sound() {
+    if cfg!(target_os = "macos") {
+        // macOS: use afplay with system sounds
+        let candidates = [
+            "/System/Library/Sounds/Glass.aiff",
+            "/System/Library/Sounds/Ping.aiff",
+            "/System/Library/Sounds/Pop.aiff",
+        ];
+        for sound in &candidates {
+            if std::path::Path::new(sound).exists() {
+                let _ = Command::new("afplay").arg(sound).spawn();
+                return;
+            }
+        }
+    } else {
+        // Linux: use paplay/aplay with freedesktop sounds
+        let sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga";
+        if std::path::Path::new(sound).exists() {
+            let _ = Command::new("paplay").arg(sound).spawn();
+        }
+    }
 }
 
 #[tauri::command]
@@ -325,24 +343,39 @@ pub fn is_turbo_enabled() -> bool {
 
 /// Find an available terminal emulator.
 fn find_terminal() -> Option<String> {
-    let candidates = [
-        "gnome-terminal",
-        "x-terminal-emulator",
-        "konsole",
-        "xfce4-terminal",
-        "xterm",
-    ];
-    for term in &candidates {
-        if Command::new("which")
-            .arg(term)
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-        {
-            return Some(term.to_string());
+    if cfg!(target_os = "macos") {
+        // On macOS, check for popular terminal apps
+        let candidates = [
+            ("/Applications/iTerm.app", "iTerm"),
+            ("/Applications/Terminal.app", "Terminal"),
+            ("/System/Applications/Utilities/Terminal.app", "Terminal"),
+        ];
+        for (app_path, name) in &candidates {
+            if std::path::Path::new(app_path).exists() {
+                return Some(name.to_string());
+            }
         }
+        None
+    } else {
+        let candidates = [
+            "gnome-terminal",
+            "x-terminal-emulator",
+            "konsole",
+            "xfce4-terminal",
+            "xterm",
+        ];
+        for term in &candidates {
+            if Command::new("which")
+                .arg(term)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                return Some(term.to_string());
+            }
+        }
+        None
     }
-    None
 }
 
 /// Shell-escape a string using POSIX single-quote escaping.
@@ -365,36 +398,59 @@ pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
 
     info!("Resuming session {} in {} via {}", session_id, cwd, terminal);
 
-    let result = match terminal.as_str() {
-        "gnome-terminal" => Command::new(&terminal)
-            .arg(format!("--working-directory={}", cwd))
-            .arg("--")
-            .args(["bash", "-c", &bash_cmd])
-            .spawn(),
-        "konsole" => Command::new(&terminal)
-            .arg("--workdir")
-            .arg(&cwd)
-            .arg("-e")
-            .args(["bash", "-c", &bash_cmd])
-            .spawn(),
-        "xfce4-terminal" => Command::new(&terminal)
-            .arg(format!("--working-directory={}", cwd))
-            .arg("-e")
-            .arg(&format!("bash -c {}", shell_escape(&bash_cmd)))
-            .spawn(),
-        "xterm" => Command::new(&terminal)
-            .arg("-e")
-            .arg(&format!("cd {} && {}", escaped_cwd, bash_cmd))
-            .spawn(),
-        _ => Command::new(&terminal)
-            .arg("-e")
-            .args(["bash", "-c", &format!("cd {} && {}", escaped_cwd, bash_cmd)])
-            .spawn(),
+    let result = if cfg!(target_os = "macos") {
+        resume_session_macos(&terminal, &cwd, &bash_cmd)
+    } else {
+        resume_session_linux(&terminal, &cwd, &escaped_cwd, &bash_cmd)
     };
 
     result
         .map(|_| ())
         .map_err(|e| format!("failed to spawn terminal: {}", e))
+}
+
+/// Resume a session in a macOS terminal emulator.
+fn resume_session_macos(terminal: &str, cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+    let script = format!(
+        "tell application \"{}\" to do script \"cd {} && {}\"",
+        terminal,
+        shell_escape(cwd),
+        bash_cmd.replace('\\', "\\\\").replace('"', "\\\"")
+    );
+    Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .spawn()
+}
+
+/// Resume a session in a Linux terminal emulator.
+fn resume_session_linux(terminal: &str, cwd: &str, escaped_cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+    match terminal {
+        "gnome-terminal" => Command::new(terminal)
+            .arg(format!("--working-directory={}", cwd))
+            .arg("--")
+            .args(["bash", "-c", bash_cmd])
+            .spawn(),
+        "konsole" => Command::new(terminal)
+            .arg("--workdir")
+            .arg(cwd)
+            .arg("-e")
+            .args(["bash", "-c", bash_cmd])
+            .spawn(),
+        "xfce4-terminal" => Command::new(terminal)
+            .arg(format!("--working-directory={}", cwd))
+            .arg("-e")
+            .arg(&format!("bash -c {}", shell_escape(bash_cmd)))
+            .spawn(),
+        "xterm" => Command::new(terminal)
+            .arg("-e")
+            .arg(&format!("cd {} && {}", escaped_cwd, bash_cmd))
+            .spawn(),
+        _ => Command::new(terminal)
+            .arg("-e")
+            .args(["bash", "-c", &format!("cd {} && {}", escaped_cwd, bash_cmd)])
+            .spawn(),
+    }
 }
 
 #[tauri::command]
