@@ -77,14 +77,58 @@ export function linearRegression(points) {
 	return { slope, intercept };
 }
 
-let db = null;
+const DB_PATH = "sqlite:claude-monitor.db";
+let dbInstance = null;
+
+// Minimal SQL wrapper using Tauri invoke directly (no bundler needed)
+class TauriDatabase {
+	constructor(path) {
+		this.path = path;
+	}
+
+	static async load(path) {
+		const resolvedPath = await invoke("plugin:sql|load", { db: path });
+		return new TauriDatabase(resolvedPath);
+	}
+
+	async execute(query, bindValues = []) {
+		return invoke("plugin:sql|execute", { db: this.path, query, values: bindValues });
+	}
+
+	async select(query, bindValues = []) {
+		return invoke("plugin:sql|select", { db: this.path, query, values: bindValues });
+	}
+}
 
 export async function getDb() {
-	if (!db) {
-		const Database = (await import("@tauri-apps/plugin-sql")).default;
-		db = await Database.load("sqlite:claude-monitor.db");
+	if (!dbInstance) {
+		dbInstance = await TauriDatabase.load(DB_PATH);
 	}
-	return db;
+	return dbInstance;
+}
+
+// Notification helper using Web Notification API (same as official Tauri plugin)
+let notifPermissionGranted = null;
+
+export async function sendTauriNotification(title, body) {
+	try {
+		if (notifPermissionGranted === null) {
+			if (window.Notification.permission !== "default") {
+				notifPermissionGranted = window.Notification.permission === "granted";
+			} else {
+				notifPermissionGranted = await invoke("plugin:notification|is_permission_granted");
+			}
+		}
+		if (!notifPermissionGranted) {
+			const perm = await window.Notification.requestPermission();
+			notifPermissionGranted = perm === "granted";
+		}
+		if (notifPermissionGranted) {
+			new window.Notification(title, { body });
+		}
+	} catch (e) {
+		console.warn("notification failed:", e);
+	}
 }
 
 export async function invokeWithRetry(
