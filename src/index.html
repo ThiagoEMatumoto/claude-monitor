@@ -29,11 +29,12 @@
 
       <!-- Tab Bar -->
       <div id="tab-bar" class="tab-bar hidden">
-        <button class="tab active" data-tab="usage">Usage</button>
-        <button class="tab" data-tab="sessions">
-          Sessions <span id="tab-badge" class="tab-badge hidden">0</span>
+        <button class="tab active" data-tab="dashboard">Dashboard</button>
+        <button class="tab" data-tab="activity">
+          Activity <span id="tab-badge" class="tab-badge hidden">0</span>
         </button>
-        <button class="tab" data-tab="analytics">Analytics</button>
+        <button class="tab" data-tab="insights">Insights</button>
+        <button class="tab" data-tab="plugins">Plugins</button>
       </div>
 
       <!-- Login Screen -->
@@ -154,64 +155,51 @@
         </div>
       </div>
 
-      <!-- Analytics Page -->
-      <div id="analytics-page" class="page hidden">
+      <!-- Insights Page -->
+      <div id="insights-page" class="page hidden">
         <div class="section">
-          <!-- Cost Estimate (P1) -->
-          <div id="analytics-cost">
-            <div class="section-title">Cost Estimate (24h)</div>
-            <div id="cost-summary" class="stat-pills"></div>
-            <div id="cost-breakdown" class="analytics-list"></div>
-          </div>
-
-          <!-- Token Summary -->
-          <div class="divider"></div>
-          <div id="analytics-tokens">
-            <div class="section-title">Token Usage (24h)</div>
-            <div id="token-summary" class="stat-pills"></div>
-            <div id="token-sessions-list" class="analytics-list"></div>
-          </div>
-
-          <!-- Productivity (P6) -->
-          <div class="divider"></div>
-          <div id="analytics-productivity">
-            <div class="section-title">Productivity</div>
-            <div id="productivity-stats" class="productivity-grid"></div>
-          </div>
-
-          <!-- Cache Efficiency -->
-          <div class="divider"></div>
-          <div id="analytics-cache">
-            <div class="section-title">Cache Efficiency</div>
-            <div class="usage-row compact">
-              <span class="label-text">Hit Rate</span>
-              <div class="progress-bar small">
-                <div class="progress-fill" id="bar-cache" style="width: 0%"></div>
-              </div>
-              <span class="label-value" id="val-cache">0%</span>
+          <!-- Summary Cards (default view) -->
+          <div id="insights-summary" class="insights-grid">
+            <div class="insight-card" data-detail="cost">
+              <div class="insight-label">Cost Today</div>
+              <div class="insight-value" id="insight-cost">&mdash;</div>
+              <div class="insight-sub" id="insight-cost-sub"></div>
             </div>
-            <div class="usage-meta" id="cache-detail"></div>
+            <div class="insight-card" data-detail="cache">
+              <div class="insight-label">Cache Rate</div>
+              <div class="insight-value" id="insight-cache">&mdash;</div>
+              <div class="insight-sub" id="insight-cache-sub"></div>
+            </div>
+            <div class="insight-card" data-detail="tokens">
+              <div class="insight-label">Tokens Today</div>
+              <div class="insight-value" id="insight-tokens">&mdash;</div>
+              <div class="insight-sub" id="insight-tokens-sub"></div>
+            </div>
+            <div class="insight-card" data-detail="tools">
+              <div class="insight-label">Top Tool</div>
+              <div class="insight-value" id="insight-tool">&mdash;</div>
+              <div class="insight-sub" id="insight-tool-sub"></div>
+            </div>
           </div>
 
-          <!-- Cache by Project (P4) -->
-          <div class="divider"></div>
-          <div id="analytics-project-cache">
-            <div class="section-title">Cache by Project</div>
-            <div id="project-cache-list" class="analytics-list"></div>
+          <!-- Detail Views (lazy, one at a time) -->
+          <div id="insight-detail" class="hidden">
+            <button id="insight-back" class="insight-back-btn">&larr; Back</button>
+            <div id="insight-detail-content"></div>
           </div>
+        </div>
+      </div>
 
-          <!-- Cost Chart (P3) -->
+      <!-- Plugins Page -->
+      <div id="plugins-page" class="page hidden">
+        <div class="section">
+          <div id="plugins-list" class="plugins-list"></div>
           <div class="divider"></div>
-          <div id="analytics-cost-chart">
-            <div class="section-title">Cost Trend (7d)</div>
-            <canvas id="cost-chart" width="300" height="100"></canvas>
-          </div>
-
-          <!-- Tool Usage -->
-          <div class="divider"></div>
-          <div id="analytics-tools">
-            <div class="section-title">Top Tools (24h)</div>
-            <div id="tool-stats-list" class="analytics-list"></div>
+          <div id="plugins-summary" class="plugins-summary"></div>
+          <!-- Detail view -->
+          <div id="plugin-detail" class="hidden">
+            <button id="plugin-back" class="insight-back-btn">&larr; Back</button>
+            <div id="plugin-detail-content"></div>
           </div>
         </div>
       </div>

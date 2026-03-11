@@ -1,12 +1,13 @@
-import { $, invoke } from "./utils.js";
+import { $, invoke, debounce } from "./utils.js";
 import { refresh, startPolling, stopPolling, setBasePollInterval, setupChartRangeToggle } from "./polling.js";
 import { setupSessionListener, setupSessionClickHandler, refreshRecentSessions, setupSessionSearch } from "./sessions-ui.js";
 import { loadSettings, createDebouncedSave, setupTurboToggle, exportData } from "./settings.js";
-import { refreshAnalytics } from "./analytics-ui.js";
+import { refreshInsights, setupInsightEvents } from "./analytics-ui.js";
+import { refreshPlugins, setupPluginEvents } from "./plugins-ui.js";
 
 // === State ===
 let settingsOpen = false;
-let activeTab = "usage";
+let activeTab = "dashboard";
 let recentRefreshTimer = null;
 
 // === Initialization ===
@@ -31,6 +32,8 @@ async function init() {
 	recentRefreshTimer = setInterval(refreshRecentSessions, 60000);
 	setupTurboToggle();
 	setupChartRangeToggle();
+	setupInsightEvents();
+	setupPluginEvents();
 }
 
 // === Views ===
@@ -50,33 +53,39 @@ function showUsage() {
 	switchTab(activeTab);
 }
 
-function switchTab(tab) {
+const switchTab = debounce(function switchTabInner(tab) {
 	activeTab = tab;
 	document.querySelectorAll(".tab").forEach((t) => {
 		t.classList.toggle("active", t.dataset.tab === tab);
 	});
-	$("usage-section").classList.toggle("hidden", tab !== "usage");
-	$("sessions-page").classList.toggle("hidden", tab !== "sessions");
-	$("analytics-page").classList.toggle("hidden", tab !== "analytics");
+	$("usage-section").classList.toggle("hidden", tab !== "dashboard");
+	$("sessions-page").classList.toggle("hidden", tab !== "activity");
+	$("insights-page").classList.toggle("hidden", tab !== "insights");
+	$("plugins-page").classList.toggle("hidden", tab !== "plugins");
 	$("settings-section").classList.add("hidden");
 	settingsOpen = false;
-	if (tab === "analytics") refreshAnalytics();
-}
+	if (tab === "insights") refreshInsights();
+	if (tab === "plugins") refreshPlugins();
+}, 150);
 
 async function toggleSettings() {
 	settingsOpen = !settingsOpen;
 	$("settings-section").classList.toggle("hidden", !settingsOpen);
 	$("usage-section").classList.toggle(
 		"hidden",
-		settingsOpen || activeTab !== "usage",
+		settingsOpen || activeTab !== "dashboard",
 	);
 	$("sessions-page").classList.toggle(
 		"hidden",
-		settingsOpen || activeTab !== "sessions",
+		settingsOpen || activeTab !== "activity",
 	);
-	$("analytics-page").classList.toggle(
+	$("insights-page").classList.toggle(
 		"hidden",
-		settingsOpen || activeTab !== "analytics",
+		settingsOpen || activeTab !== "insights",
+	);
+	$("plugins-page").classList.toggle(
+		"hidden",
+		settingsOpen || activeTab !== "plugins",
 	);
 	if (settingsOpen) {
 		const result = await loadSettings();
@@ -97,7 +106,12 @@ function bindEvents() {
 		}
 	});
 
-	$("btn-refresh").addEventListener("click", refresh);
+	$("btn-refresh").addEventListener("click", async () => {
+		const btn = $("btn-refresh");
+		btn.classList.add("refreshing");
+		await refresh();
+		btn.classList.remove("refreshing");
+	});
 	$("btn-settings").addEventListener("click", toggleSettings);
 	$("btn-close").addEventListener("click", () => {
 		invoke("hide_window");
@@ -137,16 +151,24 @@ function setupKeyboardShortcuts() {
 				break;
 			case "r":
 			case "R":
-				if (!e.ctrlKey && !e.metaKey) refresh();
+				if (!e.ctrlKey && !e.metaKey) {
+					const btn = $("btn-refresh");
+					btn.classList.add("refreshing");
+					await refresh();
+					btn.classList.remove("refreshing");
+				}
 				break;
 			case "1":
-				switchTab("usage");
+				switchTab("dashboard");
 				break;
 			case "2":
-				switchTab("sessions");
+				switchTab("activity");
 				break;
 			case "3":
-				switchTab("analytics");
+				switchTab("insights");
+				break;
+			case "4":
+				switchTab("plugins");
 				break;
 		}
 	});

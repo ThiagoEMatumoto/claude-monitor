@@ -63,12 +63,9 @@ function renderWaitingSessions(sessions) {
 	empty.classList.add("hidden");
 	list.classList.remove("hidden");
 
-	const icons = { question: "?", approval: "!", completed: "\u2713" };
-
 	list.innerHTML = sessions
 		.map((s) => {
 			const elapsed = formatElapsed(s.idleSince);
-			const icon = icons[s.sessionType] || "\u2022";
 
 			// P5: Build context tags
 			let tags = "";
@@ -91,13 +88,15 @@ function renderWaitingSessions(sessions) {
 			const tagsHtml = tags ? `<div class="session-tags">${tags}</div>` : "";
 
 			return `<div class="session-item ${s.sessionType} clickable" data-session-id="${escapeAttr(s.sessionId)}" data-cwd="${escapeAttr(s.cwd)}">
-			<div class="session-icon">${icon}</div>
+			<div class="session-dot ${s.sessionType}"></div>
 			<div class="session-info">
-				<div class="session-project">${escapeHtml(s.project)}</div>
+				<div class="session-header">
+					<span class="session-project">${escapeHtml(s.project)}</span>
+					<span class="session-time">${elapsed}</span>
+				</div>
 				${tagsHtml}
 				<div class="session-text">${escapeHtml(s.lastText)}</div>
 			</div>
-			<div class="session-time">${elapsed}</div>
 		</div>`;
 		})
 		.join("");
@@ -161,19 +160,18 @@ export function renderRecentSessions(sessions) {
 	empty.classList.add("hidden");
 	list.classList.remove("hidden");
 
-	const statusIcons = { active: "\u25B6", waiting: "\u23F8", idle: "\u25CB" };
-
 	list.innerHTML = sessions
 		.map((s) => {
 			const elapsed = formatElapsed(s.lastModified);
-			const icon = statusIcons[s.status] || "\u25CB";
 			return `<div class="session-item ${s.status} clickable" data-session-id="${escapeAttr(s.sessionId)}" data-cwd="${escapeAttr(s.cwd)}">
-			<div class="session-icon">${icon}</div>
+			<div class="session-dot ${s.status}"></div>
 			<div class="session-info">
-				<div class="session-project">${escapeHtml(s.project)}</div>
+				<div class="session-header">
+					<span class="session-project">${escapeHtml(s.project)}</span>
+					<span class="session-time">${elapsed}</span>
+				</div>
 				<div class="session-text">${escapeHtml(s.lastText)}</div>
 			</div>
-			<div class="session-time">${elapsed}</div>
 		</div>`;
 		})
 		.join("");

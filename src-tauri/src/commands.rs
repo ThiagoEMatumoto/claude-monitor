@@ -1,6 +1,7 @@
 use crate::analytics;
 use crate::claude;
 use crate::cost;
+use crate::plugins;
 use crate::sessions::{self, RecentSession, SessionsState, WaitingSession};
 use log::{info, warn};
 use serde::Serialize;
@@ -499,6 +500,80 @@ pub fn get_recent_sessions(state: State<'_, SessionsState>) -> Vec<RecentSession
     sessions::list_recent_sessions(&waiting_ids)
 }
 
+// === Insights Summary (single consolidated command) ===
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InsightsSummary {
+    pub cost_today_usd: f64,
+    pub cost_week_usd: f64,
+    pub cache_hit_rate: f64,
+    pub top_cache_project: Option<String>,
+    pub top_cache_project_rate: f64,
+    pub total_input: u64,
+    pub total_output: u64,
+    pub session_count: u64,
+    pub message_count: u64,
+    pub top_tool_name: Option<String>,
+    pub top_tool_pct: f64,
+    pub second_tool_name: Option<String>,
+    pub second_tool_pct: f64,
+}
+
+#[tauri::command]
+pub fn get_insights_summary() -> InsightsSummary {
+    let stats = analytics::get_session_analytics(24);
+
+    // Cost today + week
+    let cost_today = cost::get_cost_summary(24);
+    let cost_week = cost::get_cost_summary(168);
+
+    // Cache hit rate
+    let total_input = stats.total_input;
+    let cache_read = stats.cache_read;
+    let cache_creation = stats.cache_creation;
+    let uncached = total_input.saturating_sub(cache_creation + cache_read);
+    let total_cache_denom = cache_read + cache_creation + uncached;
+    let cache_hit_rate = if total_cache_denom > 0 {
+        cache_read as f64 / total_cache_denom as f64
+    } else {
+        0.0
+    };
+
+    // Top cache project
+    let project_cache = analytics::get_cache_stats_by_project(24);
+    let top_project = project_cache.iter().max_by(|a, b| {
+        a.hit_rate
+            .partial_cmp(&b.hit_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let top_cache_project = top_project.map(|p| p.project.clone());
+    let top_cache_project_rate = top_project.map(|p| p.hit_rate).unwrap_or(0.0);
+
+    // Top tools
+    let tools = analytics::get_tool_stats(24);
+    let top_tool_name = tools.first().map(|t| t.tool_name.clone());
+    let top_tool_pct = tools.first().map(|t| t.pct_of_total).unwrap_or(0.0);
+    let second_tool_name = tools.get(1).map(|t| t.tool_name.clone());
+    let second_tool_pct = tools.get(1).map(|t| t.pct_of_total).unwrap_or(0.0);
+
+    InsightsSummary {
+        cost_today_usd: cost_today.total_cost_usd,
+        cost_week_usd: cost_week.total_cost_usd,
+        cache_hit_rate,
+        top_cache_project,
+        top_cache_project_rate,
+        total_input: stats.total_input,
+        total_output: stats.total_output,
+        session_count: stats.session_count,
+        message_count: stats.message_count,
+        top_tool_name,
+        top_tool_pct,
+        second_tool_name,
+        second_tool_pct,
+    }
+}
+
 // === Analytics Commands ===
 
 #[tauri::command]
@@ -542,6 +617,23 @@ pub fn hide_window(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("panel") {
         let _ = tauri::WebviewWindow::hide(&win);
     }
+}
+
+// === Plugin Commands ===
+
+#[tauri::command]
+pub fn list_plugins() -> Vec<plugins::PluginInfo> {
+    plugins::list_plugins()
+}
+
+#[tauri::command]
+pub fn get_plugin_usage(hours: u64) -> Vec<plugins::PluginUsageStats> {
+    plugins::get_plugin_usage(hours)
+}
+
+#[tauri::command]
+pub fn set_plugin_enabled(plugin_id: String, enabled: bool) -> Result<(), String> {
+    plugins::set_plugin_enabled(&plugin_id, enabled)
 }
 
 #[cfg(test)]
