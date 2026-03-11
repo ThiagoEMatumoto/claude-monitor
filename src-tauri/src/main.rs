@@ -58,9 +58,15 @@ fn acquire_singleton_lock() -> fs::File {
                 std::process::exit(0);
             }
             // PID is dead — stale lock. Force-remove and retry.
-            log::warn!("stale lock from dead PID {}, removing and re-acquiring", old_pid);
+            log::warn!(
+                "stale lock from dead PID {}, removing and re-acquiring",
+                old_pid
+            );
         } else {
-            log::warn!("lock file has invalid contents '{}', removing and re-acquiring", contents.trim());
+            log::warn!(
+                "lock file has invalid contents '{}', removing and re-acquiring",
+                contents.trim()
+            );
         }
 
         // Remove stale lock and re-open
@@ -85,7 +91,10 @@ fn acquire_singleton_lock() -> fs::File {
         let mut f = file.try_clone().expect("clone lockfile");
         let _ = f.set_len(0);
         let _ = write!(f, "{}", std::process::id());
-        log::info!("singleton lock acquired after stale cleanup (PID {})", std::process::id());
+        log::info!(
+            "singleton lock acquired after stale cleanup (PID {})",
+            std::process::id()
+        );
         return file;
     }
 
@@ -153,28 +162,65 @@ fn main() {
         })
         .manage(sessions::SessionsState::new())
         .setup(|app| {
-            let sessions_display = MenuItem::with_id(app, "sessions_display", "No sessions waiting", false, None::<&str>)?;
+            let sessions_display = MenuItem::with_id(
+                app,
+                "sessions_display",
+                "No sessions waiting",
+                false,
+                None::<&str>,
+            )?;
             let sessions_sep = PredefinedMenuItem::separator(app)?;
-            let session_display = MenuItem::with_id(app, "session_display", "🟢 Session: --%", false, None::<&str>)?;
-            let session_reset = MenuItem::with_id(app, "session_reset", "    resets in --", false, None::<&str>)?;
-            let weekly_display = MenuItem::with_id(app, "weekly_display", "🟢 Weekly: --%", false, None::<&str>)?;
-            let weekly_reset = MenuItem::with_id(app, "weekly_reset", "    resets in --", false, None::<&str>)?;
+            let session_display = MenuItem::with_id(
+                app,
+                "session_display",
+                "🟢 Session: --%",
+                false,
+                None::<&str>,
+            )?;
+            let session_reset = MenuItem::with_id(
+                app,
+                "session_reset",
+                "    resets in --",
+                false,
+                None::<&str>,
+            )?;
+            let weekly_display =
+                MenuItem::with_id(app, "weekly_display", "🟢 Weekly: --%", false, None::<&str>)?;
+            let weekly_reset =
+                MenuItem::with_id(app, "weekly_reset", "    resets in --", false, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
-            let sonnet_display = MenuItem::with_id(app, "sonnet_display", "    Sonnet: --%", false, None::<&str>)?;
-            let opus_display = MenuItem::with_id(app, "opus_display", "    Opus: --%", false, None::<&str>)?;
+            let sonnet_display = MenuItem::with_id(
+                app,
+                "sonnet_display",
+                "    Sonnet: --%",
+                false,
+                None::<&str>,
+            )?;
+            let opus_display =
+                MenuItem::with_id(app, "opus_display", "    Opus: --%", false, None::<&str>)?;
             let sep2 = PredefinedMenuItem::separator(app)?;
-            let show_details = MenuItem::with_id(app, "show_details", "Show Details…", true, None::<&str>)?;
+            let show_details =
+                MenuItem::with_id(app, "show_details", "Show Details…", true, None::<&str>)?;
             let sep3 = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[
-                &sessions_display, &sessions_sep,
-                &session_display, &session_reset,
-                &weekly_display, &weekly_reset,
-                &sep1,
-                &sonnet_display, &opus_display,
-                &sep2, &show_details,
-                &sep3, &quit,
-            ])?;
+            let menu = Menu::with_items(
+                app,
+                &[
+                    &sessions_display,
+                    &sessions_sep,
+                    &session_display,
+                    &session_reset,
+                    &weekly_display,
+                    &weekly_reset,
+                    &sep1,
+                    &sonnet_display,
+                    &opus_display,
+                    &sep2,
+                    &show_details,
+                    &sep3,
+                    &quit,
+                ],
+            )?;
 
             // Store menu reference for dynamic updates
             let state = app.state::<AppState>();
@@ -183,8 +229,8 @@ fn main() {
             }
 
             let icon_bytes = include_bytes!("../icons/32x32.png");
-            let icon_img = tauri::image::Image::from_bytes(icon_bytes)
-                .expect("failed to load tray icon");
+            let icon_img =
+                tauri::image::Image::from_bytes(icon_bytes).expect("failed to load tray icon");
 
             let tray = TrayIconBuilder::with_id("main-tray")
                 .icon(icon_img)
@@ -202,7 +248,9 @@ fn main() {
                                     let screen = monitor.size();
                                     let mon_pos = monitor.position();
                                     let scale = monitor.scale_factor();
-                                    let x = mon_pos.x + screen.width as i32 - 340 - (8.0 * scale) as i32;
+                                    let x = mon_pos.x + screen.width as i32
+                                        - 340
+                                        - (8.0 * scale) as i32;
                                     let y = mon_pos.y + (32.0 * scale) as i32;
                                     let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
                                 }
@@ -217,8 +265,8 @@ fn main() {
                 .build(app)?;
 
             // Force GNOME to read fresh icon by bumping temp filename counter (0→1)
-            let refresh_icon = tauri::image::Image::from_bytes(icon_bytes)
-                .expect("failed to load tray icon");
+            let refresh_icon =
+                tauri::image::Image::from_bytes(icon_bytes).expect("failed to load tray icon");
             tray.set_icon(Some(refresh_icon))?;
 
             // Start session watcher

@@ -50,7 +50,10 @@ fn build_usage_data(usage: claude::UsageResponse) -> UsageData {
 }
 
 /// Try to get fresh credentials, first from CLI file, then via own refresh.
-async fn refresh_credentials(state: &State<'_, AppState>, old_refresh_token: &str) -> Result<claude::Credentials, String> {
+async fn refresh_credentials(
+    state: &State<'_, AppState>,
+    old_refresh_token: &str,
+) -> Result<claude::Credentials, String> {
     // 1. Re-read CLI file — instant, CLI likely refreshed the token already
     if let Some(cli_creds) = claude::load_cli_credentials() {
         if !cli_creds.is_expired(crate::config::TOKEN_REFRESH_BUFFER_SECS) {
@@ -171,9 +174,13 @@ pub fn update_tray_menu(
     let menu = guard.as_ref().ok_or("tray menu not initialized")?;
 
     fn indicator(pct: f32) -> &'static str {
-        if pct >= 75.0 { "🔴" }
-        else if pct >= 50.0 { "🟡" }
-        else { "🟢" }
+        if pct >= 75.0 {
+            "🔴"
+        } else if pct >= 50.0 {
+            "🟡"
+        } else {
+            "🟢"
+        }
     }
 
     fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
@@ -184,7 +191,10 @@ pub fn update_tray_menu(
                     mi.set_text(&text_owned)
                 }));
                 if let Err(_) = result {
-                    log::warn!("set_menu_text panicked for '{}' (GTK assertion), skipping", id);
+                    log::warn!(
+                        "set_menu_text panicked for '{}' (GTK assertion), skipping",
+                        id
+                    );
                 }
             }
         }
@@ -193,22 +203,36 @@ pub fn update_tray_menu(
     let five_pct = five_hour.round() as i32;
     let seven_pct = seven_day.round() as i32;
 
-    set_menu_text(menu, "session_display",
-        &format!("{} Session: {}%", indicator(five_hour), five_pct));
-    set_menu_text(menu, "session_reset",
-        &format!("     resets {}", five_hour_reset.as_deref().unwrap_or("--")));
+    set_menu_text(
+        menu,
+        "session_display",
+        &format!("{} Session: {}%", indicator(five_hour), five_pct),
+    );
+    set_menu_text(
+        menu,
+        "session_reset",
+        &format!("     resets {}", five_hour_reset.as_deref().unwrap_or("--")),
+    );
 
-    set_menu_text(menu, "weekly_display",
-        &format!("{} Weekly: {}%", indicator(seven_day), seven_pct));
-    set_menu_text(menu, "weekly_reset",
-        &format!("     resets {}", seven_day_reset.as_deref().unwrap_or("--")));
+    set_menu_text(
+        menu,
+        "weekly_display",
+        &format!("{} Weekly: {}%", indicator(seven_day), seven_pct),
+    );
+    set_menu_text(
+        menu,
+        "weekly_reset",
+        &format!("     resets {}", seven_day_reset.as_deref().unwrap_or("--")),
+    );
 
     let sonnet_pct = sonnet.unwrap_or(0.0).round() as i32;
     let opus_pct = opus.unwrap_or(0.0).round() as i32;
-    set_menu_text(menu, "sonnet_display",
-        &format!("     Sonnet: {}%", sonnet_pct));
-    set_menu_text(menu, "opus_display",
-        &format!("     Opus: {}%", opus_pct));
+    set_menu_text(
+        menu,
+        "sonnet_display",
+        &format!("     Sonnet: {}%", sonnet_pct),
+    );
+    set_menu_text(menu, "opus_display", &format!("     Opus: {}%", opus_pct));
 
     // Update tray title for GNOME panel compact display
     if let Some(tray) = app.tray_by_id("main-tray") {
@@ -226,18 +250,17 @@ pub fn update_tray_menu(
 
 #[tauri::command]
 pub fn update_tray_icon(app: tauri::AppHandle, max_usage: f32) -> Result<(), String> {
-    use crate::tray_icon::{UsageLevel, generate_icon};
+    use crate::tray_icon::{generate_icon, UsageLevel};
 
     let level = UsageLevel::from_pct(max_usage);
     let png_bytes = generate_icon(level);
-    let icon = tauri::image::Image::from_bytes(&png_bytes)
-        .map_err(|e| format!("icon decode: {}", e))?;
+    let icon =
+        tauri::image::Image::from_bytes(&png_bytes).map_err(|e| format!("icon decode: {}", e))?;
 
     if let Some(tray) = app.tray_by_id("main-tray") {
         // Catch GTK assertion panics (e.g. gtk_widget_get_scale_factor on invalid widget)
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            tray.set_icon(Some(icon))
-        }));
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray.set_icon(Some(icon))));
         match result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => log::warn!("tray set_icon error: {}", e),
@@ -275,7 +298,10 @@ pub fn update_tray_sessions(
                     mi.set_text(&text_owned)
                 }));
                 if let Err(_) = result {
-                    log::warn!("set_menu_text panicked for '{}' (GTK assertion), skipping", id);
+                    log::warn!(
+                        "set_menu_text panicked for '{}' (GTK assertion), skipping",
+                        id
+                    );
                 }
             }
         }
@@ -396,7 +422,10 @@ pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
     let escaped_cwd = shell_escape(&cwd);
     let bash_cmd = format!("unset CLAUDECODE; claude -r {}; exec bash", escaped_id);
 
-    info!("Resuming session {} in {} via {}", session_id, cwd, terminal);
+    info!(
+        "Resuming session {} in {} via {}",
+        session_id, cwd, terminal
+    );
 
     let result = if cfg!(target_os = "macos") {
         resume_session_macos(&terminal, &cwd, &bash_cmd)
@@ -512,13 +541,30 @@ pub fn hide_window(app: tauri::AppHandle) {
 mod tests {
     use super::*;
 
-    fn make_usage(extra_enabled: bool, limit: Option<f64>, used: Option<f64>, util: Option<f32>) -> claude::UsageResponse {
+    fn make_usage(
+        extra_enabled: bool,
+        limit: Option<f64>,
+        used: Option<f64>,
+        util: Option<f32>,
+    ) -> claude::UsageResponse {
         claude::UsageResponse {
-            five_hour: claude::UsagePeriod { utilization: 42.0, resets_at: Some("2026-01-01T12:00:00Z".into()) },
-            seven_day: claude::UsagePeriod { utilization: 55.0, resets_at: Some("2026-01-07T00:00:00Z".into()) },
+            five_hour: claude::UsagePeriod {
+                utilization: 42.0,
+                resets_at: Some("2026-01-01T12:00:00Z".into()),
+            },
+            seven_day: claude::UsagePeriod {
+                utilization: 55.0,
+                resets_at: Some("2026-01-07T00:00:00Z".into()),
+            },
             seven_day_oauth_apps: None,
-            seven_day_opus: Some(claude::UsagePeriod { utilization: 30.0, resets_at: None }),
-            seven_day_sonnet: Some(claude::UsagePeriod { utilization: 60.0, resets_at: None }),
+            seven_day_opus: Some(claude::UsagePeriod {
+                utilization: 30.0,
+                resets_at: None,
+            }),
+            seven_day_sonnet: Some(claude::UsagePeriod {
+                utilization: 60.0,
+                resets_at: None,
+            }),
             seven_day_cowork: None,
             iguana_necktie: None,
             seven_day_iguana_necktie: None,

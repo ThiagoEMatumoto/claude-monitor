@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -240,8 +240,8 @@ pub async fn oauth_login() -> Result<Credentials, String> {
         .map_err(|e| e.to_string())?;
 
     let text = resp.text().await.map_err(|e| e.to_string())?;
-    let token: TokenResponse = serde_json::from_str(&text)
-        .map_err(|e| format!("parse error: {} — body: {}", e, text))?;
+    let token: TokenResponse =
+        serde_json::from_str(&text).map_err(|e| format!("parse error: {} — body: {}", e, text))?;
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -331,8 +331,7 @@ pub async fn get_usage(access_token: &str) -> Result<UsageResponse, String> {
         return Err(format!("{}: {}", status_code, text));
     }
 
-    serde_json::from_str(&text)
-        .map_err(|e| format!("parse error: {} — body: {}", e, text))
+    serde_json::from_str(&text).map_err(|e| format!("parse error: {} — body: {}", e, text))
 }
 
 #[cfg(test)]

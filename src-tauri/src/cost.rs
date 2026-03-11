@@ -112,7 +112,9 @@ pub fn get_cost_summary(hours: u64) -> CostSummary {
     let mut total = 0.0;
 
     for (tier, (input, output, cache_read, cache_write)) in &tier_tokens {
-        let p = pricing.get(tier.as_str()).unwrap_or_else(|| pricing.get("sonnet").unwrap());
+        let p = pricing
+            .get(tier.as_str())
+            .unwrap_or_else(|| pricing.get("sonnet").unwrap());
         let cost = calculate_cost(*input, *output, *cache_read, *cache_write, p);
         total += cost;
         by_model.push(ModelCost {
@@ -125,7 +127,11 @@ pub fn get_cost_summary(hours: u64) -> CostSummary {
         });
     }
 
-    by_model.sort_by(|a, b| b.cost_usd.partial_cmp(&a.cost_usd).unwrap_or(std::cmp::Ordering::Equal));
+    by_model.sort_by(|a, b| {
+        b.cost_usd
+            .partial_cmp(&a.cost_usd)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     CostSummary {
         total_cost_usd: total,

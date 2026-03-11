@@ -20,8 +20,8 @@ impl UsageLevel {
 
     fn color(&self) -> Rgba<u8> {
         match self {
-            UsageLevel::Normal => Rgba([0, 230, 118, 255]),   // green
-            UsageLevel::Warning => Rgba([255, 171, 0, 255]),  // yellow
+            UsageLevel::Normal => Rgba([0, 230, 118, 255]), // green
+            UsageLevel::Warning => Rgba([255, 171, 0, 255]), // yellow
             UsageLevel::Critical => Rgba([255, 82, 82, 255]), // red
         }
     }
@@ -79,7 +79,11 @@ mod tests {
 
     #[test]
     fn test_generate_icon_produces_valid_png() {
-        for level in [UsageLevel::Normal, UsageLevel::Warning, UsageLevel::Critical] {
+        for level in [
+            UsageLevel::Normal,
+            UsageLevel::Warning,
+            UsageLevel::Critical,
+        ] {
             let bytes = generate_icon(level);
             // PNG magic bytes
             assert_eq!(&bytes[0..4], &[0x89, 0x50, 0x4E, 0x47]);

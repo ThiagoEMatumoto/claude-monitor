@@ -142,10 +142,22 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
 
         // Extract token usage
         if let Some(usage) = entry.pointer("/message/usage") {
-            let input = usage.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let output = usage.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let cache_creation = usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let cache_read = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+            let input = usage
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let output = usage
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let cache_creation = usage
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let cache_read = usage
+                .get("cache_read_input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
 
             summary.total_input_tokens += input;
             summary.total_output_tokens += output;
@@ -153,10 +165,12 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
             summary.cache_read_tokens += cache_read;
 
             // Track per-model usage
-            let mu = model_tokens.entry(model_str.to_string()).or_insert_with(|| ModelTokenUsage {
-                model: model_str.to_string(),
-                ..Default::default()
-            });
+            let mu = model_tokens
+                .entry(model_str.to_string())
+                .or_insert_with(|| ModelTokenUsage {
+                    model: model_str.to_string(),
+                    ..Default::default()
+                });
             mu.input_tokens += input;
             mu.output_tokens += output;
             mu.cache_creation_tokens += cache_creation;
@@ -183,14 +197,19 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
     // Convert tool counts to sorted records
     let mut tools: Vec<ToolCallRecord> = tool_counts
         .into_iter()
-        .map(|(tool_name, call_count)| ToolCallRecord { tool_name, call_count })
+        .map(|(tool_name, call_count)| ToolCallRecord {
+            tool_name,
+            call_count,
+        })
         .collect();
     tools.sort_by(|a, b| b.call_count.cmp(&a.call_count));
     summary.tool_calls = tools;
 
     // Convert model tokens to sorted vec
     let mut model_vec: Vec<ModelTokenUsage> = model_tokens.into_values().collect();
-    model_vec.sort_by(|a, b| (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens)));
+    model_vec.sort_by(|a, b| {
+        (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens))
+    });
     summary.model_usage = model_vec;
 
     summary.file_offset = file_len;
@@ -244,7 +263,9 @@ pub fn get_session_analytics(hours: u64) -> AggregateTokenStats {
 /// Compute cache hit rate from aggregate data.
 pub fn get_cache_stats(hours: u64) -> CacheStats {
     let analytics = get_session_analytics(hours);
-    let uncached = analytics.total_input.saturating_sub(analytics.cache_creation + analytics.cache_read);
+    let uncached = analytics
+        .total_input
+        .saturating_sub(analytics.cache_creation + analytics.cache_read);
     let total = analytics.cache_read + analytics.cache_creation + uncached;
     let hit_rate = if total > 0 {
         analytics.cache_read as f64 / total as f64
@@ -333,7 +354,11 @@ pub fn get_cache_stats_by_project(hours: u64) -> Vec<ProjectCacheStats> {
         })
         .collect();
 
-    results.sort_by(|a, b| a.hit_rate.partial_cmp(&b.hit_rate).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        a.hit_rate
+            .partial_cmp(&b.hit_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     results
 }
 
@@ -424,7 +449,12 @@ pub fn get_productivity_stats(hours: u64) -> ProductivityStats {
     let prev_input = prev.total_input.saturating_sub(current.total_input);
     let prev_output = prev.total_output.saturating_sub(current.total_output);
     let prev_tools_total: u64 = {
-        let all: u64 = prev.sessions.iter().flat_map(|s| &s.tool_calls).map(|t| t.call_count).sum();
+        let all: u64 = prev
+            .sessions
+            .iter()
+            .flat_map(|s| &s.tool_calls)
+            .map(|t| t.call_count)
+            .sum();
         all.saturating_sub(total_tools)
     };
 

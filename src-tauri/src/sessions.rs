@@ -196,9 +196,10 @@ fn classify_session(entries: &[serde_json::Value]) -> Option<SessionClassificati
     }
 
     // Look at last few entries for patterns
-    let last_assistant = entries.iter().rev().find(|e| {
-        e.get("type").and_then(|v| v.as_str()) == Some("assistant")
-    });
+    let last_assistant = entries
+        .iter()
+        .rev()
+        .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("assistant"));
 
     let last_text = last_assistant
         .and_then(|e| e.get("message"))
@@ -402,7 +403,9 @@ pub fn delete_signal(session_id: &str) {
 pub fn start_session_watcher(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         info!("Session watcher started");
-        let mut interval = tokio::time::interval(Duration::from_secs(crate::config::SESSION_WATCHER_INTERVAL_SECS));
+        let mut interval = tokio::time::interval(Duration::from_secs(
+            crate::config::SESSION_WATCHER_INTERVAL_SECS,
+        ));
 
         loop {
             interval.tick().await;
@@ -429,9 +432,7 @@ pub fn start_session_watcher(app: AppHandle) {
                         let last_text = entries
                             .iter()
                             .rev()
-                            .find(|e| {
-                                e.get("type").and_then(|v| v.as_str()) == Some("assistant")
-                            })
+                            .find(|e| e.get("type").and_then(|v| v.as_str()) == Some("assistant"))
                             .and_then(|e| e.get("message"))
                             .and_then(|m| m.get("content"))
                             .and_then(|c| c.as_array())
@@ -593,7 +594,10 @@ pub fn start_session_watcher(app: AppHandle) {
             if changed || !new_session_ids.is_empty() {
                 let sessions_vec: Vec<WaitingSession> = new_waiting.values().cloned().collect();
                 let _ = app.emit("sessions-changed", &sessions_vec);
-                debug!("Emitted sessions-changed with {} sessions", sessions_vec.len());
+                debug!(
+                    "Emitted sessions-changed with {} sessions",
+                    sessions_vec.len()
+                );
             }
         }
     });
@@ -637,21 +641,21 @@ pub fn list_recent_sessions(waiting_ids: &HashSet<String>) -> Vec<RecentSession>
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
         // Classify status
-        let status: &str = if let Some(mtime) = file_path.metadata().ok().and_then(|m| m.modified().ok())
-        {
-            let elapsed = SystemTime::now()
-                .duration_since(mtime)
-                .unwrap_or(Duration::from_secs(0));
-            if elapsed.as_secs() < crate::config::STALE_THRESHOLD_SECS {
-                "active"
-            } else if classify_session(&entries).is_some() {
-                "waiting"
+        let status: &str =
+            if let Some(mtime) = file_path.metadata().ok().and_then(|m| m.modified().ok()) {
+                let elapsed = SystemTime::now()
+                    .duration_since(mtime)
+                    .unwrap_or(Duration::from_secs(0));
+                if elapsed.as_secs() < crate::config::STALE_THRESHOLD_SECS {
+                    "active"
+                } else if classify_session(&entries).is_some() {
+                    "waiting"
+                } else {
+                    "idle"
+                }
             } else {
                 "idle"
-            }
-        } else {
-            "idle"
-        };
+            };
 
         let last_text = entries
             .iter()
@@ -731,8 +735,7 @@ elif [ "$HOOK_EVENT" = "notification" ] || [ "$HOOK_EVENT" = "Notification" ]; t
     touch "$SIGNALS_DIR/${SESSION_ID}.perm"
 fi
 "#;
-    fs::write(&script_path, script)
-        .map_err(|e| format!("write script: {}", e))?;
+    fs::write(&script_path, script).map_err(|e| format!("write script: {}", e))?;
 
     // Make executable
     Command::new("chmod")
@@ -762,9 +765,7 @@ fi
         .entry("hooks")
         .or_insert_with(|| serde_json::json!({}));
 
-    let hooks_obj = hooks
-        .as_object_mut()
-        .ok_or("hooks not an object")?;
+    let hooks_obj = hooks.as_object_mut().ok_or("hooks not an object")?;
 
     // Add Stop hook
     let stop_hooks = hooks_obj
