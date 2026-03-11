@@ -5,7 +5,19 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
+use crate::cost;
 use crate::sessions;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelTokenUsage {
+    pub model: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub cache_creation_tokens: u64,
+    pub cache_read_tokens: u64,
+    pub message_count: u64,
+}
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,6 +34,7 @@ pub struct SessionTokenSummary {
     pub first_seen: String,
     pub last_seen: String,
     pub file_offset: u64,
+    pub model_usage: Vec<ModelTokenUsage>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -78,6 +91,7 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
 
     let mut summary = SessionTokenSummary::default();
     let mut tool_counts: HashMap<String, u64> = HashMap::new();
+    let mut model_tokens: HashMap<String, ModelTokenUsage> = HashMap::new();
     let mut has_data = false;
 
     for line in buf.lines() {
@@ -120,31 +134,48 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
         summary.message_count += 1;
 
         // Extract model
-        if let Some(model) = entry
+        let model_str = entry
             .pointer("/message/model")
             .and_then(|v| v.as_str())
-        {
-            summary.model = model.to_string();
-        }
+            .unwrap_or("unknown");
+        summary.model = model_str.to_string();
 
         // Extract token usage
         if let Some(usage) = entry.pointer("/message/usage") {
-            summary.total_input_tokens += usage
+            let input = usage
                 .get("input_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            summary.total_output_tokens += usage
+            let output = usage
                 .get("output_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            summary.cache_creation_tokens += usage
+            let cache_creation = usage
                 .get("cache_creation_input_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            summary.cache_read_tokens += usage
+            let cache_read = usage
                 .get("cache_read_input_tokens")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
+
+            summary.total_input_tokens += input;
+            summary.total_output_tokens += output;
+            summary.cache_creation_tokens += cache_creation;
+            summary.cache_read_tokens += cache_read;
+
+            // Track per-model usage
+            let mu = model_tokens
+                .entry(model_str.to_string())
+                .or_insert_with(|| ModelTokenUsage {
+                    model: model_str.to_string(),
+                    ..Default::default()
+                });
+            mu.input_tokens += input;
+            mu.output_tokens += output;
+            mu.cache_creation_tokens += cache_creation;
+            mu.cache_read_tokens += cache_read;
+            mu.message_count += 1;
         }
 
         // Extract tool calls from message content
@@ -166,10 +197,21 @@ pub fn scan_session_tokens(path: &Path, last_offset: u64) -> Option<(SessionToke
     // Convert tool counts to sorted records
     let mut tools: Vec<ToolCallRecord> = tool_counts
         .into_iter()
-        .map(|(tool_name, call_count)| ToolCallRecord { tool_name, call_count })
+        .map(|(tool_name, call_count)| ToolCallRecord {
+            tool_name,
+            call_count,
+        })
         .collect();
     tools.sort_by(|a, b| b.call_count.cmp(&a.call_count));
     summary.tool_calls = tools;
+
+    // Convert model tokens to sorted vec
+    let mut model_vec: Vec<ModelTokenUsage> = model_tokens.into_values().collect();
+    model_vec.sort_by(|a, b| {
+        (b.input_tokens + b.output_tokens).cmp(&(a.input_tokens + a.output_tokens))
+    });
+    summary.model_usage = model_vec;
+
     summary.file_offset = file_len;
 
     Some((summary, file_len))
@@ -221,7 +263,9 @@ pub fn get_session_analytics(hours: u64) -> AggregateTokenStats {
 /// Compute cache hit rate from aggregate data.
 pub fn get_cache_stats(hours: u64) -> CacheStats {
     let analytics = get_session_analytics(hours);
-    let uncached = analytics.total_input.saturating_sub(analytics.cache_creation + analytics.cache_read);
+    let uncached = analytics
+        .total_input
+        .saturating_sub(analytics.cache_creation + analytics.cache_read);
     let total = analytics.cache_read + analytics.cache_creation + uncached;
     let hit_rate = if total > 0 {
         analytics.cache_read as f64 / total as f64
@@ -265,6 +309,189 @@ pub fn get_tool_stats(hours: u64) -> Vec<ToolStats> {
     stats.sort_by(|a, b| b.call_count.cmp(&a.call_count));
     stats.truncate(15);
     stats
+}
+
+// === P4: Cache stats grouped by project ===
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCacheStats {
+    pub project: String,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+    pub hit_rate: f64,
+    pub tokens_saved: u64,
+}
+
+pub fn get_cache_stats_by_project(hours: u64) -> Vec<ProjectCacheStats> {
+    let analytics = get_session_analytics(hours);
+    let mut by_project: HashMap<String, (u64, u64, u64)> = HashMap::new();
+
+    for session in &analytics.sessions {
+        let entry = by_project.entry(session.project.clone()).or_default();
+        entry.0 += session.cache_read_tokens;
+        entry.1 += session.cache_creation_tokens;
+        entry.2 += session.total_input_tokens;
+    }
+
+    let mut results: Vec<ProjectCacheStats> = by_project
+        .into_iter()
+        .map(|(project, (read, creation, total_input))| {
+            let uncached = total_input.saturating_sub(creation + read);
+            let total = read + creation + uncached;
+            let hit_rate = if total > 0 {
+                read as f64 / total as f64
+            } else {
+                0.0
+            };
+            ProjectCacheStats {
+                project,
+                cache_read: read,
+                cache_creation: creation,
+                hit_rate,
+                tokens_saved: read,
+            }
+        })
+        .collect();
+
+    results.sort_by(|a, b| {
+        a.hit_rate
+            .partial_cmp(&b.hit_rate)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    results
+}
+
+// === P6: Productivity stats ===
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductivityStats {
+    pub tokens_per_message: f64,
+    pub tools_per_session: f64,
+    pub io_ratio: f64,
+    pub sessions_per_day: f64,
+    pub avg_session_duration_mins: f64,
+    pub cache_efficiency_pct: f64,
+    pub cost_estimate_usd: f64,
+    // Trends vs previous period (None = no data)
+    pub prev_tokens_per_message: Option<f64>,
+    pub prev_tools_per_session: Option<f64>,
+    pub prev_io_ratio: Option<f64>,
+    pub prev_sessions_per_day: Option<f64>,
+}
+
+pub fn get_productivity_stats(hours: u64) -> ProductivityStats {
+    let current = get_session_analytics(hours);
+
+    let total_tools: u64 = current
+        .sessions
+        .iter()
+        .flat_map(|s| &s.tool_calls)
+        .map(|t| t.call_count)
+        .sum();
+
+    let tokens_per_message = if current.message_count > 0 {
+        (current.total_input + current.total_output) as f64 / current.message_count as f64
+    } else {
+        0.0
+    };
+
+    let tools_per_session = if current.session_count > 0 {
+        total_tools as f64 / current.session_count as f64
+    } else {
+        0.0
+    };
+
+    let io_ratio = if current.total_output > 0 {
+        current.total_input as f64 / current.total_output as f64
+    } else {
+        0.0
+    };
+
+    let days = (hours as f64 / 24.0).max(1.0);
+    let sessions_per_day = current.session_count as f64 / days;
+
+    // Average session duration
+    let total_duration_mins: f64 = current
+        .sessions
+        .iter()
+        .filter_map(|s| {
+            if s.first_seen.is_empty() || s.last_seen.is_empty() {
+                return None;
+            }
+            let first = chrono::DateTime::parse_from_rfc3339(&s.first_seen).ok()?;
+            let last = chrono::DateTime::parse_from_rfc3339(&s.last_seen).ok()?;
+            let diff = last.signed_duration_since(first);
+            Some(diff.num_minutes().max(0) as f64)
+        })
+        .sum();
+    let avg_duration = if current.session_count > 0 {
+        total_duration_mins / current.session_count as f64
+    } else {
+        0.0
+    };
+
+    // Cache efficiency
+    let cache_efficiency = if current.total_input > 0 {
+        current.cache_read as f64 / current.total_input as f64 * 100.0
+    } else {
+        0.0
+    };
+
+    // Cost estimate
+    let cost_summary = cost::get_cost_summary(hours);
+
+    // Previous period for trends
+    let prev = get_session_analytics(hours * 2);
+    let prev_session_count = prev.session_count.saturating_sub(current.session_count);
+    let prev_message_count = prev.message_count.saturating_sub(current.message_count);
+    let prev_input = prev.total_input.saturating_sub(current.total_input);
+    let prev_output = prev.total_output.saturating_sub(current.total_output);
+    let prev_tools_total: u64 = {
+        let all: u64 = prev
+            .sessions
+            .iter()
+            .flat_map(|s| &s.tool_calls)
+            .map(|t| t.call_count)
+            .sum();
+        all.saturating_sub(total_tools)
+    };
+
+    let prev_tpm = if prev_message_count > 0 {
+        Some((prev_input + prev_output) as f64 / prev_message_count as f64)
+    } else {
+        None
+    };
+    let prev_tps = if prev_session_count > 0 {
+        Some(prev_tools_total as f64 / prev_session_count as f64)
+    } else {
+        None
+    };
+    let prev_ior = if prev_output > 0 {
+        Some(prev_input as f64 / prev_output as f64)
+    } else {
+        None
+    };
+    let prev_spd = if prev_session_count > 0 {
+        Some(prev_session_count as f64 / days)
+    } else {
+        None
+    };
+
+    ProductivityStats {
+        tokens_per_message,
+        tools_per_session,
+        io_ratio,
+        sessions_per_day,
+        avg_session_duration_mins: avg_duration,
+        cache_efficiency_pct: cache_efficiency,
+        cost_estimate_usd: cost_summary.total_cost_usd,
+        prev_tokens_per_message: prev_tpm,
+        prev_tools_per_session: prev_tps,
+        prev_io_ratio: prev_ior,
+        prev_sessions_per_day: prev_spd,
+    }
 }
 
 #[cfg(test)]

@@ -77,31 +77,75 @@ export function linearRegression(points) {
 	return { slope, intercept };
 }
 
-let db = null;
+const DB_PATH = "sqlite:claude-monitor.db";
+let dbInstance = null;
+
+// Minimal SQL wrapper using Tauri invoke directly (no bundler needed)
+class TauriDatabase {
+	constructor(path) {
+		this.path = path;
+	}
+
+	static async load(path) {
+		const resolvedPath = await invoke("plugin:sql|load", { db: path });
+		return new TauriDatabase(resolvedPath);
+	}
+
+	async execute(query, bindValues = []) {
+		return invoke("plugin:sql|execute", { db: this.path, query, values: bindValues });
+	}
+
+	async select(query, bindValues = []) {
+		return invoke("plugin:sql|select", { db: this.path, query, values: bindValues });
+	}
+}
 
 export async function getDb() {
-	if (!db) {
-		const Database = (await import("@tauri-apps/plugin-sql")).default;
-		db = await Database.load("sqlite:claude-monitor.db");
+	if (!dbInstance) {
+		dbInstance = await TauriDatabase.load(DB_PATH);
 	}
-	return db;
+	return dbInstance;
+}
+
+// Notification helper using Web Notification API (same as official Tauri plugin)
+let notifPermissionGranted = null;
+
+export async function sendTauriNotification(title, body) {
+	try {
+		if (notifPermissionGranted === null) {
+			if (window.Notification.permission !== "default") {
+				notifPermissionGranted = window.Notification.permission === "granted";
+			} else {
+				notifPermissionGranted = await invoke("plugin:notification|is_permission_granted");
+			}
+		}
+		if (!notifPermissionGranted) {
+			const perm = await window.Notification.requestPermission();
+			notifPermissionGranted = perm === "granted";
+		}
+		if (notifPermissionGranted) {
+			new window.Notification(title, { body });
+		}
+	} catch (e) {
+		console.warn("notification failed:", e);
+	}
 }
 
 export async function invokeWithRetry(
 	cmd,
 	args,
-	{ retries = 3, baseDelay = 2000 } = {},
+	{ retries = 2, baseDelay = 30000 } = {},
 ) {
 	for (let attempt = 0; attempt <= retries; attempt++) {
 		try {
 			return await invoke(cmd, args);
 		} catch (e) {
 			const err = String(e);
-			const isRateLimit = err.startsWith("429:");
+			const isRateLimit = err.includes("429");
 			if (!isRateLimit || attempt === retries) throw e;
 			const delay = baseDelay * Math.pow(2, attempt);
 			console.warn(
-				`${cmd} rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${retries})`,
+				`${cmd} rate limited, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${retries})`,
 			);
 			await new Promise((r) => setTimeout(r, delay));
 		}

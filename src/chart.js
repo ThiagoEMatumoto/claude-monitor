@@ -16,6 +16,24 @@ export function resetChartCache() {
 	lastChartHash = null;
 }
 
+function roundedRect(ctx, x, y, w, h, radii) {
+	const [tl, tr, br, bl] = Array.isArray(radii) ? radii : [radii, radii, radii, radii];
+	ctx.moveTo(x + tl, y);
+	ctx.lineTo(x + w - tr, y);
+	if (tr) ctx.quadraticCurveTo(x + w, y, x + w, y + tr);
+	else ctx.lineTo(x + w, y);
+	ctx.lineTo(x + w, y + h - br);
+	if (br) ctx.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+	else ctx.lineTo(x + w, y + h);
+	ctx.lineTo(x + bl, y + h);
+	if (bl) ctx.quadraticCurveTo(x, y + h, x, y + h - bl);
+	else ctx.lineTo(x, y + h);
+	ctx.lineTo(x, y + tl);
+	if (tl) ctx.quadraticCurveTo(x, y, x + tl, y);
+	else ctx.lineTo(x, y);
+	ctx.closePath();
+}
+
 export async function renderChart() {
 	try {
 		const d = await getDb();
@@ -71,19 +89,19 @@ export async function renderChart() {
 
 			const grad = ctx.createLinearGradient(x, y, x, y + h);
 			if (row.peak >= 75) {
-				grad.addColorStop(0, "#ff5252");
-				grad.addColorStop(1, "#ff525240");
+				grad.addColorStop(0, "rgba(255, 82, 82, 1)");
+				grad.addColorStop(1, "rgba(255, 82, 82, 0.25)");
 			} else if (row.peak >= 50) {
-				grad.addColorStop(0, "#ffab00");
-				grad.addColorStop(1, "#ffab0040");
+				grad.addColorStop(0, "rgba(255, 171, 0, 1)");
+				grad.addColorStop(1, "rgba(255, 171, 0, 0.25)");
 			} else {
-				grad.addColorStop(0, "#00e676");
-				grad.addColorStop(1, "#00e67640");
+				grad.addColorStop(0, "rgba(0, 230, 118, 1)");
+				grad.addColorStop(1, "rgba(0, 230, 118, 0.25)");
 			}
 
 			ctx.fillStyle = grad;
 			ctx.beginPath();
-			ctx.roundRect(x, y, barW, h, [3, 3, 0, 0]);
+			roundedRect(ctx, x, y, barW, h, [3, 3, 0, 0]);
 			ctx.fill();
 
 			// Day label
@@ -102,9 +120,9 @@ export async function renderChart() {
 			const ctx = canvas.getContext("2d");
 			ctx.clearRect(0, 0, canvas.width, canvas.height);
 			ctx.fillStyle = "rgba(255,82,82,0.3)";
-			ctx.font = "12px system-ui";
+			ctx.font = "11px system-ui";
 			ctx.textAlign = "center";
-			ctx.fillText("Chart error", canvas.width / 2, canvas.height / 2);
+			ctx.fillText(String(e).slice(0, 40), canvas.width / 2, canvas.height / 2);
 		} catch (_) {}
 	}
 }

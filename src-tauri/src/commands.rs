@@ -1,5 +1,6 @@
 use crate::analytics;
 use crate::claude;
+use crate::cost;
 use crate::sessions::{self, RecentSession, SessionsState, WaitingSession};
 use log::{info, warn};
 use serde::Serialize;
@@ -7,7 +8,7 @@ use std::collections::HashSet;
 use std::process::Command;
 use std::sync::Mutex;
 use tauri::menu::Menu;
-use tauri::{State, Wry};
+use tauri::{Manager, State, Wry};
 
 pub struct AppState {
     pub credentials: Mutex<Option<claude::Credentials>>,
@@ -49,7 +50,10 @@ fn build_usage_data(usage: claude::UsageResponse) -> UsageData {
 }
 
 /// Try to get fresh credentials, first from CLI file, then via own refresh.
-async fn refresh_credentials(state: &State<'_, AppState>, old_refresh_token: &str) -> Result<claude::Credentials, String> {
+async fn refresh_credentials(
+    state: &State<'_, AppState>,
+    old_refresh_token: &str,
+) -> Result<claude::Credentials, String> {
     // 1. Re-read CLI file — instant, CLI likely refreshed the token already
     if let Some(cli_creds) = claude::load_cli_credentials() {
         if !cli_creds.is_expired(crate::config::TOKEN_REFRESH_BUFFER_SECS) {
@@ -80,7 +84,17 @@ async fn refresh_credentials(state: &State<'_, AppState>, old_refresh_token: &st
 
 #[tauri::command]
 pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> {
-    let creds = {
+    // Always prefer fresh CLI credentials (CLI keeps tokens refreshed automatically)
+    let creds = if let Some(cli_creds) = claude::load_cli_credentials() {
+        if !cli_creds.is_expired(crate::config::TOKEN_REFRESH_BUFFER_SECS) {
+            let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            *guard = Some(cli_creds.clone());
+            cli_creds
+        } else {
+            let guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            guard.clone().ok_or("not authenticated")?
+        }
+    } else {
         let guard = state.credentials.lock().map_err(|e| e.to_string())?;
         guard.clone().ok_or("not authenticated")?
     };
@@ -100,6 +114,21 @@ pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> 
             let new_creds = refresh_credentials(&state, &creds.refresh_token).await?;
             let usage = claude::get_usage(&new_creds.access_token).await?;
             Ok(build_usage_data(usage))
+        }
+        Err(e) if e.contains("429") => {
+            // Rate limited — try CLI token if we weren't already using it
+            if let Some(cli_creds) = claude::load_cli_credentials() {
+                if cli_creds.access_token != creds.access_token {
+                    info!("rate limited, retrying with fresh CLI token");
+                    {
+                        let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+                        *guard = Some(cli_creds.clone());
+                    }
+                    let usage = claude::get_usage(&cli_creds.access_token).await?;
+                    return Ok(build_usage_data(usage));
+                }
+            }
+            Err(e)
         }
         Err(e) => Err(e),
     }
@@ -130,6 +159,7 @@ pub fn logout(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn update_tray_menu(
     app: tauri::AppHandle,
@@ -145,15 +175,28 @@ pub fn update_tray_menu(
     let menu = guard.as_ref().ok_or("tray menu not initialized")?;
 
     fn indicator(pct: f32) -> &'static str {
-        if pct >= 75.0 { "🔴" }
-        else if pct >= 50.0 { "🟡" }
-        else { "🟢" }
+        if pct >= 75.0 {
+            "🔴"
+        } else if pct >= 50.0 {
+            "🟡"
+        } else {
+            "🟢"
+        }
     }
 
     fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
         if let Some(item) = menu.get(id) {
             if let Some(mi) = item.as_menuitem() {
-                let _ = mi.set_text(text);
+                let text_owned = text.to_string();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    mi.set_text(&text_owned)
+                }));
+                if result.is_err() {
+                    log::warn!(
+                        "set_menu_text panicked for '{}' (GTK assertion), skipping",
+                        id
+                    );
+                }
             }
         }
     }
@@ -161,26 +204,46 @@ pub fn update_tray_menu(
     let five_pct = five_hour.round() as i32;
     let seven_pct = seven_day.round() as i32;
 
-    set_menu_text(menu, "session_display",
-        &format!("{} Session: {}%", indicator(five_hour), five_pct));
-    set_menu_text(menu, "session_reset",
-        &format!("     resets {}", five_hour_reset.as_deref().unwrap_or("--")));
+    set_menu_text(
+        menu,
+        "session_display",
+        &format!("{} Session: {}%", indicator(five_hour), five_pct),
+    );
+    set_menu_text(
+        menu,
+        "session_reset",
+        &format!("     resets {}", five_hour_reset.as_deref().unwrap_or("--")),
+    );
 
-    set_menu_text(menu, "weekly_display",
-        &format!("{} Weekly: {}%", indicator(seven_day), seven_pct));
-    set_menu_text(menu, "weekly_reset",
-        &format!("     resets {}", seven_day_reset.as_deref().unwrap_or("--")));
+    set_menu_text(
+        menu,
+        "weekly_display",
+        &format!("{} Weekly: {}%", indicator(seven_day), seven_pct),
+    );
+    set_menu_text(
+        menu,
+        "weekly_reset",
+        &format!("     resets {}", seven_day_reset.as_deref().unwrap_or("--")),
+    );
 
     let sonnet_pct = sonnet.unwrap_or(0.0).round() as i32;
     let opus_pct = opus.unwrap_or(0.0).round() as i32;
-    set_menu_text(menu, "sonnet_display",
-        &format!("     Sonnet: {}%", sonnet_pct));
-    set_menu_text(menu, "opus_display",
-        &format!("     Opus: {}%", opus_pct));
+    set_menu_text(
+        menu,
+        "sonnet_display",
+        &format!("     Sonnet: {}%", sonnet_pct),
+    );
+    set_menu_text(menu, "opus_display", &format!("     Opus: {}%", opus_pct));
 
     // Update tray title for GNOME panel compact display
     if let Some(tray) = app.tray_by_id("main-tray") {
-        let _ = tray.set_title(Some(&format!("{}% | {}%", five_pct, seven_pct)));
+        let title = format!("{}% | {}%", five_pct, seven_pct);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tray.set_title(Some(&title))
+        }));
+        if result.is_err() {
+            log::warn!("tray set_title panicked (GTK assertion), skipping");
+        }
     }
 
     Ok(())
@@ -188,15 +251,22 @@ pub fn update_tray_menu(
 
 #[tauri::command]
 pub fn update_tray_icon(app: tauri::AppHandle, max_usage: f32) -> Result<(), String> {
-    use crate::tray_icon::{UsageLevel, generate_icon};
+    use crate::tray_icon::{generate_icon, UsageLevel};
 
     let level = UsageLevel::from_pct(max_usage);
     let png_bytes = generate_icon(level);
-    let icon = tauri::image::Image::from_bytes(&png_bytes)
-        .map_err(|e| format!("icon decode: {}", e))?;
+    let icon =
+        tauri::image::Image::from_bytes(&png_bytes).map_err(|e| format!("icon decode: {}", e))?;
 
     if let Some(tray) = app.tray_by_id("main-tray") {
-        tray.set_icon(Some(icon)).map_err(|e| format!("set icon: {}", e))?;
+        // Catch GTK assertion panics (e.g. gtk_widget_get_scale_factor on invalid widget)
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tray.set_icon(Some(icon))));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("tray set_icon error: {}", e),
+            Err(_) => log::error!("tray set_icon panicked (GTK widget assertion), skipping"),
+        }
     }
     Ok(())
 }
@@ -224,7 +294,16 @@ pub fn update_tray_sessions(
     fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
         if let Some(item) = menu.get(id) {
             if let Some(mi) = item.as_menuitem() {
-                let _ = mi.set_text(text);
+                let text_owned = text.to_string();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    mi.set_text(&text_owned)
+                }));
+                if result.is_err() {
+                    log::warn!(
+                        "set_menu_text panicked for '{}' (GTK assertion), skipping",
+                        id
+                    );
+                }
             }
         }
     }
@@ -344,7 +423,10 @@ pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
     let escaped_cwd = shell_escape(&cwd);
     let bash_cmd = format!("unset CLAUDECODE; claude -r {}; exec bash", escaped_id);
 
-    info!("Resuming session {} in {} via {}", session_id, cwd, terminal);
+    info!(
+        "Resuming session {} in {} via {}",
+        session_id, cwd, terminal
+    );
 
     let result = if cfg!(target_os = "macos") {
         resume_session_macos(&terminal, &cwd, &bash_cmd)
@@ -358,21 +440,27 @@ pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
 }
 
 /// Resume a session in a macOS terminal emulator.
-fn resume_session_macos(terminal: &str, cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+fn resume_session_macos(
+    terminal: &str,
+    cwd: &str,
+    bash_cmd: &str,
+) -> Result<std::process::Child, std::io::Error> {
     let script = format!(
         "tell application \"{}\" to do script \"cd {} && {}\"",
         terminal,
         shell_escape(cwd),
         bash_cmd.replace('\\', "\\\\").replace('"', "\\\"")
     );
-    Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .spawn()
+    Command::new("osascript").arg("-e").arg(&script).spawn()
 }
 
 /// Resume a session in a Linux terminal emulator.
-fn resume_session_linux(terminal: &str, cwd: &str, escaped_cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+fn resume_session_linux(
+    terminal: &str,
+    cwd: &str,
+    escaped_cwd: &str,
+    bash_cmd: &str,
+) -> Result<std::process::Child, std::io::Error> {
     match terminal {
         "gnome-terminal" => Command::new(terminal)
             .arg(format!("--working-directory={}", cwd))
@@ -388,11 +476,11 @@ fn resume_session_linux(terminal: &str, cwd: &str, escaped_cwd: &str, bash_cmd: 
         "xfce4-terminal" => Command::new(terminal)
             .arg(format!("--working-directory={}", cwd))
             .arg("-e")
-            .arg(&format!("bash -c {}", shell_escape(bash_cmd)))
+            .arg(format!("bash -c {}", shell_escape(bash_cmd)))
             .spawn(),
         "xterm" => Command::new(terminal)
             .arg("-e")
-            .arg(&format!("cd {} && {}", escaped_cwd, bash_cmd))
+            .arg(format!("cd {} && {}", escaped_cwd, bash_cmd))
             .spawn(),
         _ => Command::new(terminal)
             .arg("-e")
@@ -428,17 +516,62 @@ pub fn get_tool_stats(hours: u64) -> Vec<analytics::ToolStats> {
     analytics::get_tool_stats(hours)
 }
 
+// === Cost Commands (P1) ===
+
+#[tauri::command]
+pub fn get_cost_summary(hours: u64) -> cost::CostSummary {
+    cost::get_cost_summary(hours)
+}
+
+// === Project Cache Stats (P4) ===
+
+#[tauri::command]
+pub fn get_project_cache_stats(hours: u64) -> Vec<analytics::ProjectCacheStats> {
+    analytics::get_cache_stats_by_project(hours)
+}
+
+// === Productivity Stats (P6) ===
+
+#[tauri::command]
+pub fn get_productivity_stats(hours: u64) -> analytics::ProductivityStats {
+    analytics::get_productivity_stats(hours)
+}
+
+#[tauri::command]
+pub fn hide_window(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("panel") {
+        let _ = tauri::WebviewWindow::hide(&win);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_usage(extra_enabled: bool, limit: Option<f64>, used: Option<f64>, util: Option<f32>) -> claude::UsageResponse {
+    fn make_usage(
+        extra_enabled: bool,
+        limit: Option<f64>,
+        used: Option<f64>,
+        util: Option<f32>,
+    ) -> claude::UsageResponse {
         claude::UsageResponse {
-            five_hour: claude::UsagePeriod { utilization: 42.0, resets_at: Some("2026-01-01T12:00:00Z".into()) },
-            seven_day: claude::UsagePeriod { utilization: 55.0, resets_at: Some("2026-01-07T00:00:00Z".into()) },
+            five_hour: claude::UsagePeriod {
+                utilization: 42.0,
+                resets_at: Some("2026-01-01T12:00:00Z".into()),
+            },
+            seven_day: claude::UsagePeriod {
+                utilization: 55.0,
+                resets_at: Some("2026-01-07T00:00:00Z".into()),
+            },
             seven_day_oauth_apps: None,
-            seven_day_opus: Some(claude::UsagePeriod { utilization: 30.0, resets_at: None }),
-            seven_day_sonnet: Some(claude::UsagePeriod { utilization: 60.0, resets_at: None }),
+            seven_day_opus: Some(claude::UsagePeriod {
+                utilization: 30.0,
+                resets_at: None,
+            }),
+            seven_day_sonnet: Some(claude::UsagePeriod {
+                utilization: 60.0,
+                resets_at: None,
+            }),
             seven_day_cowork: None,
             iguana_necktie: None,
             seven_day_iguana_necktie: None,

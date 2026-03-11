@@ -1,0 +1,5 @@
+# Ignored advisories for cargo audit
+# RUSTSEC-2023-0071: rsa timing sidechannel (via sqlx-mysql, transitive dep)
+# No fix available upstream. We only use sqlx-sqlite, not mysql.
+[advisories]
+ignore = ["RUSTSEC-2023-0071"]

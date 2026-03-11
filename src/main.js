@@ -99,6 +99,9 @@ function bindEvents() {
 
 	$("btn-refresh").addEventListener("click", refresh);
 	$("btn-settings").addEventListener("click", toggleSettings);
+	$("btn-close").addEventListener("click", () => {
+		invoke("hide_window");
+	});
 
 	document.querySelectorAll(".tab").forEach((t) => {
 		t.addEventListener("click", () => switchTab(t.dataset.tab));
@@ -130,12 +133,7 @@ function setupKeyboardShortcuts() {
 
 		switch (e.key) {
 			case "Escape":
-				try {
-					const { getCurrentWindow } = await import("@tauri-apps/api/window");
-					await getCurrentWindow().hide();
-				} catch (err) {
-					console.warn("hide failed:", err);
-				}
+				invoke("hide_window");
 				break;
 			case "r":
 			case "R":
