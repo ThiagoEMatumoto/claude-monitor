@@ -8,9 +8,12 @@
 :root {
   --bg: rgba(15, 15, 25, 0.95);
   --surface: rgba(255, 255, 255, 0.04);
-  --border: rgba(255, 255, 255, 0.08);
+  --surface-hover: rgba(255, 255, 255, 0.06);
+  --surface-active: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.10);
   --text: rgba(255, 255, 255, 0.9);
   --text-dim: rgba(255, 255, 255, 0.45);
+  --text-muted: rgba(255, 255, 255, 0.3);
   --green: #00e676;
   --yellow: #ffab00;
   --red: #ff5252;
@@ -107,6 +110,12 @@ body {
   border-color: rgba(255, 82, 82, 0.3);
   color: var(--red);
 }
+
+/* === Refresh Spin === */
+.icon-btn.refreshing {
+  animation: spin 0.6s linear;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* === Tab Bar === */
 .tab-bar {
@@ -213,9 +222,10 @@ body {
   min-width: 56px;
 }
 .label-value {
-  font-size: 13px;
+  font-size: 18px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .progress-bar {
@@ -243,11 +253,75 @@ body {
 }
 .progress-fill.critical {
   background: var(--red);
+  box-shadow: 0 0 8px rgba(255, 82, 82, 0.3);
 }
 
 .usage-meta {
   font-size: 11px;
   color: var(--text-dim);
+}
+
+/* === Insights Cards === */
+.insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.insight-card {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.insight-card:hover {
+  transform: translateY(-1px);
+  background: var(--surface-hover);
+}
+.insight-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+.insight-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.insight-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* === Insight Back Button === */
+.insight-back-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 4px 0;
+  margin-bottom: 12px;
+}
+
+/* === Loading Skeleton === */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, rgba(255,255,255,0.06) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  height: 14px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* === Analytics === */
@@ -507,7 +581,7 @@ body {
 }
 .session-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 8px 10px;
   border-radius: 8px;
@@ -526,16 +600,32 @@ body {
   border-color: rgba(0, 230, 118, 0.2);
   background: rgba(0, 230, 118, 0.06);
 }
-.session-icon {
-  font-size: 16px;
-  width: 24px;
-  text-align: center;
+
+/* Session dot indicators */
+.session-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 5px;
+  background: var(--accent);
 }
+.session-dot.question { background: var(--yellow); }
+.session-dot.approval { background: var(--red); }
+.session-dot.completed { background: var(--green); }
+.session-dot.active { background: var(--green); }
+.session-dot.idle { background: var(--text-dim); }
+.session-dot.waiting { background: var(--yellow); }
+
 .session-info {
   flex: 1;
   min-width: 0;
   overflow: hidden;
+}
+.session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
 }
 .session-project {
   font-size: 12px;
@@ -549,8 +639,8 @@ body {
   text-overflow: ellipsis;
 }
 .session-time {
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: 10px;
+  color: var(--text-muted);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -803,7 +893,7 @@ body {
 }
 
 /* === Cost Chart (P3) === */
-#cost-chart {
+#cost-chart-detail {
   width: 100%;
   height: 100px;
   border-radius: 8px;
