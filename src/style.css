@@ -892,6 +892,118 @@ body {
   text-align: right;
 }
 
+/* === Plugins === */
+.plugins-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plugin-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.plugin-item:hover {
+  transform: translateY(-1px);
+  background: var(--surface-hover);
+}
+.plugin-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+.plugin-dot.active { background: var(--green); }
+.plugin-dot.low { background: var(--yellow); }
+.plugin-dot.unused { background: var(--text-dim); }
+.plugin-dot.skill-only { background: var(--border); }
+.plugin-info {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.plugin-name {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugin-meta {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 1px;
+}
+.plugin-stats {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 1px;
+}
+.plugin-toggle {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.plugin-toggle:hover {
+  background: var(--surface-hover);
+}
+.plugin-toggle.active {
+  background: rgba(0, 230, 118, 0.12);
+  border-color: rgba(0, 230, 118, 0.25);
+  color: var(--green);
+}
+.plugins-summary {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 4px 0;
+}
+
+/* Plugin Detail */
+.plugin-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.plugin-detail-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+.plugin-detail-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.plugin-notice {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: 12px;
+  text-align: center;
+}
+
 /* === Cost Chart (P3) === */
 #cost-chart-detail {
   width: 100%;

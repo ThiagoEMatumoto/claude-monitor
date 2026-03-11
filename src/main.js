@@ -3,6 +3,7 @@ import { refresh, startPolling, stopPolling, setBasePollInterval, setupChartRang
 import { setupSessionListener, setupSessionClickHandler, refreshRecentSessions, setupSessionSearch } from "./sessions-ui.js";
 import { loadSettings, createDebouncedSave, setupTurboToggle, exportData } from "./settings.js";
 import { refreshInsights, setupInsightEvents } from "./analytics-ui.js";
+import { refreshPlugins, setupPluginEvents } from "./plugins-ui.js";
 
 // === State ===
 let settingsOpen = false;
@@ -32,6 +33,7 @@ async function init() {
 	setupTurboToggle();
 	setupChartRangeToggle();
 	setupInsightEvents();
+	setupPluginEvents();
 }
 
 // === Views ===
@@ -59,9 +61,11 @@ const switchTab = debounce(function switchTabInner(tab) {
 	$("usage-section").classList.toggle("hidden", tab !== "dashboard");
 	$("sessions-page").classList.toggle("hidden", tab !== "activity");
 	$("insights-page").classList.toggle("hidden", tab !== "insights");
+	$("plugins-page").classList.toggle("hidden", tab !== "plugins");
 	$("settings-section").classList.add("hidden");
 	settingsOpen = false;
 	if (tab === "insights") refreshInsights();
+	if (tab === "plugins") refreshPlugins();
 }, 150);
 
 async function toggleSettings() {
@@ -78,6 +82,10 @@ async function toggleSettings() {
 	$("insights-page").classList.toggle(
 		"hidden",
 		settingsOpen || activeTab !== "insights",
+	);
+	$("plugins-page").classList.toggle(
+		"hidden",
+		settingsOpen || activeTab !== "plugins",
 	);
 	if (settingsOpen) {
 		const result = await loadSettings();
@@ -158,6 +166,9 @@ function setupKeyboardShortcuts() {
 				break;
 			case "3":
 				switchTab("insights");
+				break;
+			case "4":
+				switchTab("plugins");
 				break;
 		}
 	});
