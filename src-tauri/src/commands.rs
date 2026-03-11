@@ -1,6 +1,7 @@
 use crate::analytics;
 use crate::claude;
 use crate::cost;
+use crate::plugins;
 use crate::sessions::{self, RecentSession, SessionsState, WaitingSession};
 use log::{info, warn};
 use serde::Serialize;
@@ -616,6 +617,23 @@ pub fn hide_window(app: tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("panel") {
         let _ = tauri::WebviewWindow::hide(&win);
     }
+}
+
+// === Plugin Commands ===
+
+#[tauri::command]
+pub fn list_plugins() -> Vec<plugins::PluginInfo> {
+    plugins::list_plugins()
+}
+
+#[tauri::command]
+pub fn get_plugin_usage(hours: u64) -> Vec<plugins::PluginUsageStats> {
+    plugins::get_plugin_usage(hours)
+}
+
+#[tauri::command]
+pub fn set_plugin_enabled(plugin_id: String, enabled: bool) -> Result<(), String> {
+    plugins::set_plugin_enabled(&plugin_id, enabled)
 }
 
 #[cfg(test)]
