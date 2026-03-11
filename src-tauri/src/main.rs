@@ -276,6 +276,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::get_insights_summary,
             commands::get_usage,
             commands::login,
             commands::is_authenticated,
