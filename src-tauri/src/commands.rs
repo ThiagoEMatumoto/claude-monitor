@@ -159,6 +159,7 @@ pub fn logout(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn update_tray_menu(
     app: tauri::AppHandle,
@@ -190,7 +191,7 @@ pub fn update_tray_menu(
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     mi.set_text(&text_owned)
                 }));
-                if let Err(_) = result {
+                if result.is_err() {
                     log::warn!(
                         "set_menu_text panicked for '{}' (GTK assertion), skipping",
                         id
@@ -240,7 +241,7 @@ pub fn update_tray_menu(
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             tray.set_title(Some(&title))
         }));
-        if let Err(_) = result {
+        if result.is_err() {
             log::warn!("tray set_title panicked (GTK assertion), skipping");
         }
     }
@@ -297,7 +298,7 @@ pub fn update_tray_sessions(
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     mi.set_text(&text_owned)
                 }));
-                if let Err(_) = result {
+                if result.is_err() {
                     log::warn!(
                         "set_menu_text panicked for '{}' (GTK assertion), skipping",
                         id
@@ -439,21 +440,27 @@ pub fn resume_session(session_id: String, cwd: String) -> Result<(), String> {
 }
 
 /// Resume a session in a macOS terminal emulator.
-fn resume_session_macos(terminal: &str, cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+fn resume_session_macos(
+    terminal: &str,
+    cwd: &str,
+    bash_cmd: &str,
+) -> Result<std::process::Child, std::io::Error> {
     let script = format!(
         "tell application \"{}\" to do script \"cd {} && {}\"",
         terminal,
         shell_escape(cwd),
         bash_cmd.replace('\\', "\\\\").replace('"', "\\\"")
     );
-    Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .spawn()
+    Command::new("osascript").arg("-e").arg(&script).spawn()
 }
 
 /// Resume a session in a Linux terminal emulator.
-fn resume_session_linux(terminal: &str, cwd: &str, escaped_cwd: &str, bash_cmd: &str) -> Result<std::process::Child, std::io::Error> {
+fn resume_session_linux(
+    terminal: &str,
+    cwd: &str,
+    escaped_cwd: &str,
+    bash_cmd: &str,
+) -> Result<std::process::Child, std::io::Error> {
     match terminal {
         "gnome-terminal" => Command::new(terminal)
             .arg(format!("--working-directory={}", cwd))
@@ -469,11 +476,11 @@ fn resume_session_linux(terminal: &str, cwd: &str, escaped_cwd: &str, bash_cmd: 
         "xfce4-terminal" => Command::new(terminal)
             .arg(format!("--working-directory={}", cwd))
             .arg("-e")
-            .arg(&format!("bash -c {}", shell_escape(bash_cmd)))
+            .arg(format!("bash -c {}", shell_escape(bash_cmd)))
             .spawn(),
         "xterm" => Command::new(terminal)
             .arg("-e")
-            .arg(&format!("cd {} && {}", escaped_cwd, bash_cmd))
+            .arg(format!("cd {} && {}", escaped_cwd, bash_cmd))
             .spawn(),
         _ => Command::new(terminal)
             .arg("-e")

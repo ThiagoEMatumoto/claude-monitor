@@ -166,7 +166,7 @@ fn extract_param(request: &str, param: &str) -> Result<String, String> {
         .ok_or_else(|| format!("param {} not found", param))?
         + search.len();
     let end = request[start..]
-        .find(|c: char| c == '&' || c == ' ' || c == '\r' || c == '\n')
+        .find(['&', ' ', '\r', '\n'])
         .map(|i| start + i)
         .unwrap_or(request.len());
     Ok(request[start..end].to_string())

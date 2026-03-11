@@ -37,6 +37,7 @@ fn acquire_singleton_lock() -> fs::File {
 
     let file = fs::OpenOptions::new()
         .create(true)
+        .truncate(false)
         .write(true)
         .read(true)
         .open(&lock_path)

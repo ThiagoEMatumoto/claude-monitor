@@ -65,11 +65,7 @@ fn read_jsonl_tail_bytes(path: &Path, bytes: u64) -> Vec<serde_json::Value> {
         Err(_) => return vec![],
     };
 
-    let seek_pos = if file_len > bytes {
-        file_len - bytes
-    } else {
-        0
-    };
+    let seek_pos = file_len.saturating_sub(bytes);
 
     if file.seek(SeekFrom::Start(seek_pos)).is_err() {
         return vec![];
@@ -223,16 +219,14 @@ fn classify_session(entries: &[serde_json::Value]) -> Option<SessionClassificati
         .unwrap_or("");
 
     // Check for tool_use waiting for permission
-    if stop_reason == "tool_use" {
-        if last_type == "assistant" {
-            let (pending_tool, pending_files) = extract_tool_info(last_assistant);
-            return Some(SessionClassification {
-                session_type: "approval",
-                last_text: truncate_text_default(last_text),
-                pending_tool,
-                pending_files,
-            });
-        }
+    if stop_reason == "tool_use" && last_type == "assistant" {
+        let (pending_tool, pending_files) = extract_tool_info(last_assistant);
+        return Some(SessionClassification {
+            session_type: "approval",
+            last_text: truncate_text_default(last_text),
+            pending_tool,
+            pending_files,
+        });
     }
 
     // Check for end_turn — Claude finished, waiting for user input
