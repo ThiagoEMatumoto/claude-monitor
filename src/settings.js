@@ -1,4 +1,5 @@
 import { $, invoke, getDb, debounce } from "./utils.js";
+import { setResetNotifMinutes } from "./polling.js";
 
 export async function loadSettings() {
 	try {
@@ -12,6 +13,10 @@ export async function loadSettings() {
 			if (r.key === "poll_interval_secs") {
 				$("cfg-interval").value = r.value;
 				result.pollInterval = parseInt(r.value) || 300;
+			}
+			if (r.key === "reset_notif_minutes") {
+				$("cfg-reset-notif").value = r.value;
+				setResetNotifMinutes(parseInt(r.value) || 0);
 			}
 		});
 		return result;
@@ -38,6 +43,13 @@ export function createDebouncedSave(onSaved) {
 				"UPDATE config SET value = $1 WHERE key = 'poll_interval_secs'",
 				[String(interval)],
 			);
+			// P7: Reset notification setting
+			const resetNotif = parseInt($("cfg-reset-notif").value) || 0;
+			await d.execute(
+				"INSERT OR REPLACE INTO config (key, value) VALUES ('reset_notif_minutes', $1)",
+				[String(resetNotif)],
+			);
+			setResetNotifMinutes(resetNotif);
 			onSaved(interval);
 		} catch (e) {
 			console.warn("save settings failed:", e);

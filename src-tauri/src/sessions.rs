@@ -31,6 +31,8 @@ pub struct WaitingSession {
     pub idle_since: String,
     pub last_text: String,
     pub session_type: String, // "question", "approval", "completed"
+    pub pending_tool: Option<String>,
+    pub pending_files: Vec<String>,
 }
 
 pub struct SessionsState {
@@ -114,9 +116,56 @@ fn play_notification_sound() {
     }
 }
 
+/// Classification result with tool context for P5 enriched session display.
+pub struct SessionClassification {
+    pub session_type: &'static str,
+    pub last_text: String,
+    pub pending_tool: Option<String>,
+    pub pending_files: Vec<String>,
+}
+
+/// Extract tool name and file paths from the last tool_use block in an assistant message.
+fn extract_tool_info(assistant_entry: Option<&serde_json::Value>) -> (Option<String>, Vec<String>) {
+    let content = assistant_entry
+        .and_then(|e| e.pointer("/message/content"))
+        .and_then(|c| c.as_array());
+
+    let Some(content) = content else {
+        return (None, vec![]);
+    };
+
+    let mut tool_name = None;
+    let mut files = vec![];
+
+    // Get the LAST tool_use block (the one pending approval)
+    for block in content.iter().rev() {
+        if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+            if tool_name.is_none() {
+                tool_name = block.get("name").and_then(|n| n.as_str()).map(String::from);
+            }
+            if let Some(input) = block.get("input") {
+                for key in &["file_path", "path"] {
+                    if let Some(val) = input.get(*key).and_then(|v| v.as_str()) {
+                        let filename = Path::new(val)
+                            .file_name()
+                            .map(|f| f.to_string_lossy().to_string())
+                            .unwrap_or_else(|| val.to_string());
+                        if !files.contains(&filename) {
+                            files.push(filename);
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    (tool_name, files)
+}
+
 /// Classify session state from JSONL tail entries.
 /// Returns None if the session is actively working or already has user input at the end.
-fn classify_session(entries: &[serde_json::Value]) -> Option<(&str, String)> {
+fn classify_session(entries: &[serde_json::Value]) -> Option<SessionClassification> {
     if entries.is_empty() {
         return None;
     }
@@ -158,23 +207,30 @@ fn classify_session(entries: &[serde_json::Value]) -> Option<(&str, String)> {
 
     // Check for tool_use waiting for permission
     if stop_reason == "tool_use" {
-        // If the last entry is the tool_use assistant message itself,
-        // the user hasn't approved yet — waiting for permission
         if last_type == "assistant" {
-            let snippet = truncate_text_default(last_text);
-            return Some(("approval", snippet));
+            let (pending_tool, pending_files) = extract_tool_info(last_assistant);
+            return Some(SessionClassification {
+                session_type: "approval",
+                last_text: truncate_text_default(last_text),
+                pending_tool,
+                pending_files,
+            });
         }
     }
 
     // Check for end_turn — Claude finished, waiting for user input
     if stop_reason == "end_turn" && last_type == "assistant" {
-        let snippet = truncate_text_default(last_text);
         let session_type = if last_text.trim_end().ends_with('?') {
             "question"
         } else {
             "completed"
         };
-        return Some((session_type, snippet));
+        return Some(SessionClassification {
+            session_type,
+            last_text: truncate_text_default(last_text),
+            pending_tool: None,
+            pending_files: vec![],
+        });
     }
 
     None
@@ -384,6 +440,8 @@ pub fn start_session_watcher(app: AppHandle) {
                                 idle_since: chrono::Utc::now().to_rfc3339(),
                                 last_text: truncate_text_default(last_text),
                                 session_type: sig_type.clone(),
+                                pending_tool: None,
+                                pending_files: vec![],
                             },
                         );
                         break;
@@ -427,7 +485,7 @@ pub fn start_session_watcher(app: AppHandle) {
                     continue;
                 }
 
-                if let Some((session_type, last_text)) = classify_session(&entries) {
+                if let Some(classification) = classify_session(&entries) {
                     let idle_since = file_path
                         .metadata()
                         .ok()
@@ -452,8 +510,10 @@ pub fn start_session_watcher(app: AppHandle) {
                             project: project_from_cwd(&cwd),
                             cwd,
                             idle_since,
-                            last_text,
-                            session_type: session_type.to_string(),
+                            last_text: classification.last_text,
+                            session_type: classification.session_type.to_string(),
+                            pending_tool: classification.pending_tool,
+                            pending_files: classification.pending_files,
                         },
                     );
                 }
@@ -561,7 +621,7 @@ pub fn list_recent_sessions(waiting_ids: &HashSet<String>) -> Vec<RecentSession>
             .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
         // Classify status
-        let status = if let Some(mtime) = file_path.metadata().ok().and_then(|m| m.modified().ok())
+        let status: &str = if let Some(mtime) = file_path.metadata().ok().and_then(|m| m.modified().ok())
         {
             let elapsed = SystemTime::now()
                 .duration_since(mtime)
@@ -825,9 +885,10 @@ mod tests {
         })];
         let result = classify_session(&entries);
         assert!(result.is_some());
-        let (session_type, text) = result.unwrap();
-        assert_eq!(session_type, "question");
-        assert!(text.contains("What should I do?"));
+        let c = result.unwrap();
+        assert_eq!(c.session_type, "question");
+        assert!(c.last_text.contains("What should I do?"));
+        assert!(c.pending_tool.is_none());
     }
 
     #[test]
@@ -841,8 +902,7 @@ mod tests {
         })];
         let result = classify_session(&entries);
         assert!(result.is_some());
-        let (session_type, _) = result.unwrap();
-        assert_eq!(session_type, "completed");
+        assert_eq!(result.unwrap().session_type, "completed");
     }
 
     #[test]
@@ -850,14 +910,37 @@ mod tests {
         let entries = vec![serde_json::json!({
             "type": "assistant",
             "message": {
-                "content": [{"type": "text", "text": "I want to edit file.rs"}],
+                "content": [
+                    {"type": "text", "text": "I want to edit file.rs"},
+                    {"type": "tool_use", "name": "Edit", "id": "t1", "input": {"file_path": "/home/user/project/src/main.rs"}}
+                ],
                 "stop_reason": "tool_use"
             }
         })];
         let result = classify_session(&entries);
         assert!(result.is_some());
-        let (session_type, _) = result.unwrap();
-        assert_eq!(session_type, "approval");
+        let c = result.unwrap();
+        assert_eq!(c.session_type, "approval");
+        assert_eq!(c.pending_tool, Some("Edit".to_string()));
+        assert_eq!(c.pending_files, vec!["main.rs"]);
+    }
+
+    #[test]
+    fn test_classify_session_tool_use_bash() {
+        let entries = vec![serde_json::json!({
+            "type": "assistant",
+            "message": {
+                "content": [
+                    {"type": "tool_use", "name": "Bash", "id": "t1", "input": {"command": "npm test"}}
+                ],
+                "stop_reason": "tool_use"
+            }
+        })];
+        let result = classify_session(&entries);
+        assert!(result.is_some());
+        let c = result.unwrap();
+        assert_eq!(c.pending_tool, Some("Bash".to_string()));
+        assert!(c.pending_files.is_empty()); // Bash doesn't have file_path
     }
 
     #[test]

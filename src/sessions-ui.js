@@ -1,11 +1,11 @@
-import { $, invoke, formatElapsed, escapeHtml, escapeAttr } from "./utils.js";
+import { $, invoke, formatElapsed, escapeHtml, escapeAttr, sendTauriNotification } from "./utils.js";
 
 let notifiedSessionIds = new Set();
 let sessionRefreshTimer = null;
 
 export async function setupSessionListener() {
 	try {
-		const { listen } = await import("@tauri-apps/api/event");
+		const listen = window.__TAURI__.event.listen;
 		await listen("sessions-changed", (event) => {
 			handleSessionsUpdate(event.payload);
 		});
@@ -69,10 +69,32 @@ function renderWaitingSessions(sessions) {
 		.map((s) => {
 			const elapsed = formatElapsed(s.idleSince);
 			const icon = icons[s.sessionType] || "\u2022";
+
+			// P5: Build context tags
+			let tags = "";
+			if (s.pendingTool) {
+				tags += `<span class="session-tag tool">${escapeHtml(s.pendingTool)}</span>`;
+			}
+			if (s.pendingFiles && s.pendingFiles.length > 0) {
+				tags += s.pendingFiles
+					.slice(0, 2)
+					.map((f) => `<span class="session-tag file">${escapeHtml(f)}</span>`)
+					.join("");
+			}
+			if (!s.pendingTool && s.sessionType === "question") {
+				tags += `<span class="session-tag question-tag">question</span>`;
+			}
+			if (!s.pendingTool && s.sessionType === "completed") {
+				tags += `<span class="session-tag completed-tag">done</span>`;
+			}
+
+			const tagsHtml = tags ? `<div class="session-tags">${tags}</div>` : "";
+
 			return `<div class="session-item ${s.sessionType} clickable" data-session-id="${escapeAttr(s.sessionId)}" data-cwd="${escapeAttr(s.cwd)}">
 			<div class="session-icon">${icon}</div>
 			<div class="session-info">
 				<div class="session-project">${escapeHtml(s.project)}</div>
+				${tagsHtml}
 				<div class="session-text">${escapeHtml(s.lastText)}</div>
 			</div>
 			<div class="session-time">${elapsed}</div>
@@ -106,16 +128,7 @@ async function sendSessionNotification(session) {
 	const title =
 		titles[session.sessionType] || `Claude waiting \u2014 ${session.project}`;
 	const body = session.lastText || "";
-
-	try {
-		const { sendNotification, isPermissionGranted, requestPermission } =
-			await import("@tauri-apps/plugin-notification");
-		let granted = await isPermissionGranted();
-		if (!granted) granted = (await requestPermission()) === "granted";
-		if (granted) sendNotification({ title, body });
-	} catch (e) {
-		console.warn("session notification failed:", e);
-	}
+	await sendTauriNotification(title, body);
 }
 
 export function setupSessionClickHandler(listElementId) {

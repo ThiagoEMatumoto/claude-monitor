@@ -1,4 +1,4 @@
-import { $, invoke, invokeWithRetry, getDb, formatTimeUntil, getLevel, linearRegression } from "./utils.js";
+import { $, invoke, invokeWithRetry, getDb, formatTimeUntil, getLevel, linearRegression, sendTauriNotification } from "./utils.js";
 import { renderChart, setChartRangeDays } from "./chart.js";
 
 let pollTimer = null;
@@ -8,6 +8,8 @@ let lastNotifTime = 0;
 let rateLimitedUntil = 0;
 let consecutiveErrors = 0;
 const MAX_CONSECUTIVE_ERRORS = 5;
+let lastResetNotifTime = 0;
+let resetNotifMinutes = 10; // P7: minutes before reset to notify
 
 export function setBasePollInterval(interval) {
 	basePollInterval = interval;
@@ -16,6 +18,10 @@ export function setBasePollInterval(interval) {
 
 export function getBasePollInterval() {
 	return basePollInterval;
+}
+
+export function setResetNotifMinutes(mins) {
+	resetNotifMinutes = mins;
 }
 
 export function startPolling(intervalSecs) {
@@ -43,6 +49,7 @@ export async function refresh() {
 		await renderChart();
 		await checkAlerts(data);
 		await updateBurnRates(data);
+		checkResetNotification(data);
 		updateTrayMenu(data);
 		adaptPolling(data);
 	} catch (e) {
@@ -258,16 +265,7 @@ async function sendNotification(title, body) {
 	const now = Date.now();
 	if (now - lastNotifTime < 30 * 60 * 1000) return;
 	lastNotifTime = now;
-
-	try {
-		const { sendNotification, isPermissionGranted, requestPermission } =
-			await import("@tauri-apps/plugin-notification");
-		let granted = await isPermissionGranted();
-		if (!granted) granted = (await requestPermission()) === "granted";
-		if (granted) sendNotification({ title, body });
-	} catch (e) {
-		console.warn("notification failed:", e);
-	}
+	await sendTauriNotification(title, body);
 }
 
 async function updateBurnRates(data) {
@@ -349,21 +347,41 @@ async function sendBurnRateNotification() {
 	const now = Date.now();
 	if (now - lastBurnNotifTime < 30 * 60 * 1000) return;
 	lastBurnNotifTime = now;
+	await sendTauriNotification("Claude Usage Warning", "At current burn rate, you'll hit the limit within 30 minutes");
+}
 
-	try {
-		const { sendNotification, isPermissionGranted, requestPermission } =
-			await import("@tauri-apps/plugin-notification");
-		let granted = await isPermissionGranted();
-		if (!granted) granted = (await requestPermission()) === "granted";
-		if (granted) {
-			sendNotification({
-				title: "Claude Usage Warning",
-				body: "At current burn rate, you'll hit the limit within 30 minutes",
-			});
+// === P7: Reset Notification ===
+
+function checkResetNotification(data) {
+	if (resetNotifMinutes <= 0) return;
+
+	const now = Date.now();
+	// Cooldown: don't re-notify within 30 minutes
+	if (now - lastResetNotifTime < 30 * 60 * 1000) return;
+
+	const resets = [
+		{ label: "5h window", at: data.fiveHourResetsAt, usage: data.fiveHour },
+		{ label: "7d window", at: data.sevenDayResetsAt, usage: data.sevenDay },
+	];
+
+	for (const r of resets) {
+		if (!r.at || r.usage < 50) continue; // Only notify if usage was significant
+		const resetTime = new Date(r.at).getTime();
+		const minsUntilReset = (resetTime - now) / 60000;
+
+		if (minsUntilReset > 0 && minsUntilReset <= resetNotifMinutes) {
+			lastResetNotifTime = now;
+			sendResetNotification(r.label, Math.round(minsUntilReset), Math.round(r.usage));
+			break; // One notification at a time
 		}
-	} catch (e) {
-		console.warn("burn rate notification failed:", e);
 	}
+}
+
+async function sendResetNotification(windowName, minsLeft, currentUsage) {
+	await sendTauriNotification(
+		`Reset in ${minsLeft} min`,
+		`${windowName} resets soon \u2014 currently at ${currentUsage}%`,
+	);
 }
 
 export function setupChartRangeToggle() {
