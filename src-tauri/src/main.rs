@@ -4,6 +4,7 @@ mod analytics;
 mod claude;
 mod commands;
 mod config;
+mod cost;
 mod sessions;
 mod tray_icon;
 
@@ -243,6 +244,10 @@ fn main() {
             commands::get_session_analytics,
             commands::get_cache_stats,
             commands::get_tool_stats,
+            commands::get_cost_summary,
+            commands::get_project_cache_stats,
+            commands::get_productivity_stats,
+            commands::hide_window,
         ])
         .run(tauri::generate_context!())
         .expect("error running claude-monitor");

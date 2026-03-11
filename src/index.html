@@ -21,6 +21,9 @@
           <button id="btn-settings" class="icon-btn" title="Settings">
             &#x2699;
           </button>
+          <button id="btn-close" class="icon-btn close-btn" title="Close">
+            &#x2715;
+          </button>
         </div>
       </div>
 
@@ -154,11 +157,26 @@
       <!-- Analytics Page -->
       <div id="analytics-page" class="page hidden">
         <div class="section">
+          <!-- Cost Estimate (P1) -->
+          <div id="analytics-cost">
+            <div class="section-title">Cost Estimate (24h)</div>
+            <div id="cost-summary" class="stat-pills"></div>
+            <div id="cost-breakdown" class="analytics-list"></div>
+          </div>
+
           <!-- Token Summary -->
+          <div class="divider"></div>
           <div id="analytics-tokens">
             <div class="section-title">Token Usage (24h)</div>
             <div id="token-summary" class="stat-pills"></div>
             <div id="token-sessions-list" class="analytics-list"></div>
+          </div>
+
+          <!-- Productivity (P6) -->
+          <div class="divider"></div>
+          <div id="analytics-productivity">
+            <div class="section-title">Productivity</div>
+            <div id="productivity-stats" class="productivity-grid"></div>
           </div>
 
           <!-- Cache Efficiency -->
@@ -173,6 +191,20 @@
               <span class="label-value" id="val-cache">0%</span>
             </div>
             <div class="usage-meta" id="cache-detail"></div>
+          </div>
+
+          <!-- Cache by Project (P4) -->
+          <div class="divider"></div>
+          <div id="analytics-project-cache">
+            <div class="section-title">Cache by Project</div>
+            <div id="project-cache-list" class="analytics-list"></div>
+          </div>
+
+          <!-- Cost Chart (P3) -->
+          <div class="divider"></div>
+          <div id="analytics-cost-chart">
+            <div class="section-title">Cost Trend (7d)</div>
+            <canvas id="cost-chart" width="300" height="100"></canvas>
           </div>
 
           <!-- Tool Usage -->
@@ -224,6 +256,20 @@
               value="300"
             />
             <span>sec</span>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="setting-row">
+          <label>Reset notification</label>
+          <div class="input-group">
+            <input
+              type="number"
+              id="cfg-reset-notif"
+              min="0"
+              max="30"
+              value="10"
+            />
+            <span>min before</span>
           </div>
         </div>
         <div class="divider"></div>

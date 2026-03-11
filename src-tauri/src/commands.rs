@@ -1,5 +1,6 @@
 use crate::analytics;
 use crate::claude;
+use crate::cost;
 use crate::sessions::{self, RecentSession, SessionsState, WaitingSession};
 use log::{info, warn};
 use serde::Serialize;
@@ -7,7 +8,7 @@ use std::collections::HashSet;
 use std::process::Command;
 use std::sync::Mutex;
 use tauri::menu::Menu;
-use tauri::{State, Wry};
+use tauri::{Manager, State, Wry};
 
 pub struct AppState {
     pub credentials: Mutex<Option<claude::Credentials>>,
@@ -421,6 +422,34 @@ pub fn get_cache_stats(hours: u64) -> analytics::CacheStats {
 #[tauri::command]
 pub fn get_tool_stats(hours: u64) -> Vec<analytics::ToolStats> {
     analytics::get_tool_stats(hours)
+}
+
+// === Cost Commands (P1) ===
+
+#[tauri::command]
+pub fn get_cost_summary(hours: u64) -> cost::CostSummary {
+    cost::get_cost_summary(hours)
+}
+
+// === Project Cache Stats (P4) ===
+
+#[tauri::command]
+pub fn get_project_cache_stats(hours: u64) -> Vec<analytics::ProjectCacheStats> {
+    analytics::get_cache_stats_by_project(hours)
+}
+
+// === Productivity Stats (P6) ===
+
+#[tauri::command]
+pub fn get_productivity_stats(hours: u64) -> analytics::ProductivityStats {
+    analytics::get_productivity_stats(hours)
+}
+
+#[tauri::command]
+pub fn hide_window(app: tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("panel") {
+        let _ = tauri::WebviewWindow::hide(&win);
+    }
 }
 
 #[cfg(test)]

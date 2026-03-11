@@ -102,6 +102,11 @@ body {
   border-color: var(--border);
   color: var(--text);
 }
+.close-btn:hover {
+  background: rgba(255, 82, 82, 0.15);
+  border-color: rgba(255, 82, 82, 0.3);
+  color: var(--red);
+}
 
 /* === Tab Bar === */
 .tab-bar {
@@ -653,4 +658,154 @@ body {
   background: rgba(0, 230, 118, 0.15);
   border-color: rgba(0, 230, 118, 0.3);
   color: var(--green);
+}
+
+/* === Session Tags (P5) === */
+.session-tags {
+  display: flex;
+  gap: 4px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+.session-tag {
+  font-size: 9px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.session-tag.tool {
+  background: rgba(255, 171, 0, 0.15);
+  color: var(--yellow);
+}
+.session-tag.file {
+  background: rgba(124, 77, 255, 0.12);
+  color: var(--accent);
+  text-transform: none;
+  font-weight: 500;
+}
+.session-tag.question-tag {
+  background: rgba(33, 150, 243, 0.12);
+  color: #42a5f5;
+}
+.session-tag.completed-tag {
+  background: rgba(0, 230, 118, 0.12);
+  color: var(--green);
+}
+
+/* === Cost Section (P1) === */
+.cost-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.cost-tier {
+  font-weight: 600;
+  min-width: 50px;
+  text-transform: capitalize;
+}
+.cost-tokens {
+  color: var(--text-dim);
+  flex: 1;
+}
+.cost-amount {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--green);
+}
+.cost-amount.high {
+  color: var(--yellow);
+}
+.cost-amount.very-high {
+  color: var(--red);
+}
+
+/* === Productivity Grid (P6) === */
+.productivity-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.productivity-card {
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.productivity-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+.productivity-value {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.productivity-trend {
+  font-size: 10px;
+  margin-left: 4px;
+}
+.trend-up {
+  color: var(--green);
+}
+.trend-down {
+  color: var(--red);
+}
+.trend-neutral {
+  color: var(--text-dim);
+}
+
+/* === Project Cache Table (P4) === */
+.project-cache-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 11px;
+}
+.project-cache-name {
+  font-weight: 600;
+  min-width: 60px;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-cache-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.project-cache-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+.project-cache-pct {
+  font-variant-numeric: tabular-nums;
+  min-width: 32px;
+  text-align: right;
+}
+.project-cache-saved {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 50px;
+  text-align: right;
+}
+
+/* === Cost Chart (P3) === */
+#cost-chart {
+  width: 100%;
+  height: 100px;
+  border-radius: 8px;
+  background: var(--surface);
 }
