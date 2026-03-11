@@ -17,19 +17,27 @@ use tauri::{
 use tauri_plugin_sql::{Migration, MigrationKind};
 
 use std::fs;
-use std::io::Write;
+use std::io::{Read as _, Write};
+
+/// Check if a PID is still alive by sending signal 0.
+fn is_pid_alive(pid: u32) -> bool {
+    unsafe { libc::kill(pid as i32, 0) == 0 }
+}
 
 /// Acquire a lockfile to prevent duplicate instances.
+/// Validates stale locks by checking if the PID in the lock file is still alive.
 /// Returns the File handle (lock held while alive) or exits if another instance is running.
 fn acquire_singleton_lock() -> fs::File {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
     let lock_path = std::path::PathBuf::from(home).join(".config/claude-monitor/singleton.lock");
     let _ = fs::create_dir_all(lock_path.parent().unwrap());
 
+    log::info!("attempting to acquire singleton lock at {:?}", lock_path);
+
     let file = fs::OpenOptions::new()
         .create(true)
         .write(true)
-        .truncate(true)
+        .read(true)
         .open(&lock_path)
         .expect("failed to open lockfile");
 
@@ -37,13 +45,54 @@ fn acquire_singleton_lock() -> fs::File {
     let fd = file.as_raw_fd();
     let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
     if ret != 0 {
-        eprintln!("claude-monitor: another instance is already running, exiting.");
-        std::process::exit(0);
+        // Lock held by another process — check if that process is actually alive
+        let mut contents = String::new();
+        if let Ok(mut reader) = fs::File::open(&lock_path) {
+            let _ = reader.read_to_string(&mut contents);
+        }
+
+        if let Ok(old_pid) = contents.trim().parse::<u32>() {
+            if is_pid_alive(old_pid) {
+                log::warn!("another instance is running (PID {}), exiting", old_pid);
+                std::process::exit(0);
+            }
+            // PID is dead — stale lock. Force-remove and retry.
+            log::warn!("stale lock from dead PID {}, removing and re-acquiring", old_pid);
+        } else {
+            log::warn!("lock file has invalid contents '{}', removing and re-acquiring", contents.trim());
+        }
+
+        // Remove stale lock and re-open
+        let _ = fs::remove_file(&lock_path);
+        drop(file);
+
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .read(true)
+            .truncate(true)
+            .open(&lock_path)
+            .expect("failed to re-open lockfile");
+
+        let fd = file.as_raw_fd();
+        let ret = unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) };
+        if ret != 0 {
+            log::error!("failed to acquire lock even after stale cleanup, exiting");
+            std::process::exit(1);
+        }
+
+        let mut f = file.try_clone().expect("clone lockfile");
+        let _ = f.set_len(0);
+        let _ = write!(f, "{}", std::process::id());
+        log::info!("singleton lock acquired after stale cleanup (PID {})", std::process::id());
+        return file;
     }
 
-    // Write PID for debugging
+    // Lock acquired on first try — write our PID
     let mut f = file.try_clone().expect("clone lockfile");
+    let _ = f.set_len(0);
     let _ = write!(f, "{}", std::process::id());
+    log::info!("singleton lock acquired (PID {})", std::process::id());
 
     file
 }

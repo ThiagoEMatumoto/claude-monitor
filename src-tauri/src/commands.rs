@@ -80,7 +80,17 @@ async fn refresh_credentials(state: &State<'_, AppState>, old_refresh_token: &st
 
 #[tauri::command]
 pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> {
-    let creds = {
+    // Always prefer fresh CLI credentials (CLI keeps tokens refreshed automatically)
+    let creds = if let Some(cli_creds) = claude::load_cli_credentials() {
+        if !cli_creds.is_expired(crate::config::TOKEN_REFRESH_BUFFER_SECS) {
+            let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            *guard = Some(cli_creds.clone());
+            cli_creds
+        } else {
+            let guard = state.credentials.lock().map_err(|e| e.to_string())?;
+            guard.clone().ok_or("not authenticated")?
+        }
+    } else {
         let guard = state.credentials.lock().map_err(|e| e.to_string())?;
         guard.clone().ok_or("not authenticated")?
     };
@@ -100,6 +110,21 @@ pub async fn get_usage(state: State<'_, AppState>) -> Result<UsageData, String> 
             let new_creds = refresh_credentials(&state, &creds.refresh_token).await?;
             let usage = claude::get_usage(&new_creds.access_token).await?;
             Ok(build_usage_data(usage))
+        }
+        Err(e) if e.contains("429") => {
+            // Rate limited — try CLI token if we weren't already using it
+            if let Some(cli_creds) = claude::load_cli_credentials() {
+                if cli_creds.access_token != creds.access_token {
+                    info!("rate limited, retrying with fresh CLI token");
+                    {
+                        let mut guard = state.credentials.lock().map_err(|e| e.to_string())?;
+                        *guard = Some(cli_creds.clone());
+                    }
+                    let usage = claude::get_usage(&cli_creds.access_token).await?;
+                    return Ok(build_usage_data(usage));
+                }
+            }
+            Err(e)
         }
         Err(e) => Err(e),
     }
@@ -153,7 +178,13 @@ pub fn update_tray_menu(
     fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
         if let Some(item) = menu.get(id) {
             if let Some(mi) = item.as_menuitem() {
-                let _ = mi.set_text(text);
+                let text_owned = text.to_string();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    mi.set_text(&text_owned)
+                }));
+                if let Err(_) = result {
+                    log::warn!("set_menu_text panicked for '{}' (GTK assertion), skipping", id);
+                }
             }
         }
     }
@@ -180,7 +211,13 @@ pub fn update_tray_menu(
 
     // Update tray title for GNOME panel compact display
     if let Some(tray) = app.tray_by_id("main-tray") {
-        let _ = tray.set_title(Some(&format!("{}% | {}%", five_pct, seven_pct)));
+        let title = format!("{}% | {}%", five_pct, seven_pct);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tray.set_title(Some(&title))
+        }));
+        if let Err(_) = result {
+            log::warn!("tray set_title panicked (GTK assertion), skipping");
+        }
     }
 
     Ok(())
@@ -196,7 +233,15 @@ pub fn update_tray_icon(app: tauri::AppHandle, max_usage: f32) -> Result<(), Str
         .map_err(|e| format!("icon decode: {}", e))?;
 
     if let Some(tray) = app.tray_by_id("main-tray") {
-        tray.set_icon(Some(icon)).map_err(|e| format!("set icon: {}", e))?;
+        // Catch GTK assertion panics (e.g. gtk_widget_get_scale_factor on invalid widget)
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tray.set_icon(Some(icon))
+        }));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => log::warn!("tray set_icon error: {}", e),
+            Err(_) => log::error!("tray set_icon panicked (GTK widget assertion), skipping"),
+        }
     }
     Ok(())
 }
@@ -224,7 +269,13 @@ pub fn update_tray_sessions(
     fn set_menu_text(menu: &Menu<Wry>, id: &str, text: &str) {
         if let Some(item) = menu.get(id) {
             if let Some(mi) = item.as_menuitem() {
-                let _ = mi.set_text(text);
+                let text_owned = text.to_string();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    mi.set_text(&text_owned)
+                }));
+                if let Err(_) = result {
+                    log::warn!("set_menu_text panicked for '{}' (GTK assertion), skipping", id);
+                }
             }
         }
     }

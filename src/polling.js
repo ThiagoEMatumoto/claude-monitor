@@ -6,6 +6,8 @@ let basePollInterval = 300;
 let activePollInterval = 300;
 let lastNotifTime = 0;
 let rateLimitedUntil = 0;
+let consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 export function setBasePollInterval(interval) {
 	basePollInterval = interval;
@@ -34,6 +36,8 @@ export async function refresh() {
 	}
 	try {
 		const data = await invokeWithRetry("get_usage");
+		consecutiveErrors = 0;
+		hideErrorIndicator();
 		updateBars(data);
 		await saveSnapshot(data);
 		await renderChart();
@@ -42,18 +46,63 @@ export async function refresh() {
 		updateTrayMenu(data);
 		adaptPolling(data);
 	} catch (e) {
-		console.error("refresh failed:", e);
-		if (String(e).includes("429")) {
+		consecutiveErrors++;
+		console.error(`refresh failed (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, e);
+
+		const errStr = String(e);
+
+		if (errStr.includes("429")) {
 			rateLimitedUntil = Date.now() + 5 * 60 * 1000;
 			console.warn("rate limited by API, backing off for 5 minutes");
 			startPolling(basePollInterval);
 			return "rate_limited";
 		}
-		if (String(e).includes("not authenticated")) {
+
+		// Permanent errors — stop polling immediately
+		if (errStr.includes("not authenticated") || errStr.includes("401") || errStr.includes("403")) {
+			stopPolling();
+			showErrorIndicator("Authentication expired — please re-login");
 			return "not_authenticated";
+		}
+
+		// After MAX_CONSECUTIVE_ERRORS, switch to reconnect mode with backoff
+		if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+			stopPolling();
+			showErrorIndicator(`Connection lost — retrying every 5 min (${consecutiveErrors} errors)`);
+			scheduleReconnect();
+			return "error_backoff";
 		}
 	}
 	return "ok";
+}
+
+let reconnectTimer = null;
+
+function scheduleReconnect() {
+	if (reconnectTimer) clearTimeout(reconnectTimer);
+	const backoffSecs = Math.min(300 * Math.pow(1.5, consecutiveErrors - MAX_CONSECUTIVE_ERRORS), 1800);
+	console.warn(`scheduling reconnect in ${Math.round(backoffSecs)}s`);
+	reconnectTimer = setTimeout(async () => {
+		reconnectTimer = null;
+		const result = await refresh();
+		if (result === "ok") {
+			console.info("reconnected successfully, resuming normal polling");
+			startPolling(basePollInterval);
+		}
+	}, backoffSecs * 1000);
+}
+
+function showErrorIndicator(message) {
+	const alertBar = $("alert-bar");
+	const alertText = $("alert-text");
+	if (alertBar && alertText) {
+		alertBar.className = "alert-bar";
+		alertText.textContent = message;
+	}
+}
+
+function hideErrorIndicator() {
+	// Alert will be restored by next successful checkAlerts()
 }
 
 function adaptPolling(data) {
