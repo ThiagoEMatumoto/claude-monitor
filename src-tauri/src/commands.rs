@@ -330,7 +330,10 @@ pub fn play_sound() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn set_notif_sound_enabled(enabled: bool, state: State<'_, SessionsState>) -> Result<(), String> {
+pub fn set_notif_sound_enabled(
+    enabled: bool,
+    state: State<'_, SessionsState>,
+) -> Result<(), String> {
     state.sound_enabled.store(enabled, Ordering::Relaxed);
     Ok(())
 }
