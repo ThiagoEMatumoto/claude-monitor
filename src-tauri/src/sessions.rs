@@ -258,7 +258,12 @@ fn truncate_text(text: &str, max_len: usize) -> String {
     if text.len() <= max_len {
         text.to_string()
     } else {
-        format!("{}…", &text[..max_len])
+        // Find a valid UTF-8 char boundary at or before max_len
+        let mut end = max_len;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…", &text[..end])
     }
 }
 
@@ -870,6 +875,44 @@ mod tests {
             result.len(),
             crate::config::LAST_TEXT_TRUNCATION + "…".len()
         );
+    }
+
+    #[test]
+    fn test_truncate_text_multibyte_boundary() {
+        // "café" = [99, 97, 102, 195, 169] — 'é' is 2 bytes
+        // Cutting at byte 4 would land in the middle of 'é'
+        let result = truncate_text("café", 4);
+        assert_eq!(result, "caf…");
+    }
+
+    #[test]
+    fn test_truncate_text_emoji_mid_boundary() {
+        // "hi 👋 there" — 👋 is 4 bytes (bytes 3..7), space at byte 7
+        // Cutting at byte 5 lands inside the emoji, should back up to byte 3
+        let result = truncate_text("hi 👋 there", 5);
+        assert_eq!(result, "hi …");
+    }
+
+    #[test]
+    fn test_truncate_text_emoji_after_boundary() {
+        // Cutting at byte 7 includes the full emoji
+        let result = truncate_text("hi 👋 there", 7);
+        assert_eq!(result, "hi 👋…");
+    }
+
+    #[test]
+    fn test_truncate_text_cjk() {
+        // CJK characters are 3 bytes each: "你好世界" = 12 bytes
+        // Cutting at byte 5 would land in the middle of '世'
+        let result = truncate_text("你好世界", 5);
+        assert_eq!(result, "你…");
+    }
+
+    #[test]
+    fn test_truncate_text_all_multibyte() {
+        // All multibyte, cutting at byte 1 should back up to 0
+        let result = truncate_text("日本語", 1);
+        assert_eq!(result, "…");
     }
 
     #[test]
