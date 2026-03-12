@@ -1,4 +1,5 @@
 import { $, invoke, formatElapsed, escapeHtml, escapeAttr, sendTauriNotification } from "./utils.js";
+import { isNotifSoundEnabled } from "./settings.js";
 
 let notifiedSessionIds = new Set();
 let sessionRefreshTimer = null;
@@ -37,7 +38,9 @@ function handleSessionsUpdate(sessions) {
 		if (!notifiedSessionIds.has(session.sessionId)) {
 			notifiedSessionIds.add(session.sessionId);
 			sendSessionNotification(session);
-			invoke("play_sound").catch(() => {});
+			if (isNotifSoundEnabled()) {
+				invoke("play_sound").catch(() => {});
+			}
 		}
 	}
 

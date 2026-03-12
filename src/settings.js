@@ -1,6 +1,12 @@
 import { $, invoke, getDb, debounce } from "./utils.js";
 import { setResetNotifMinutes } from "./polling.js";
 
+let notifSoundEnabled = true;
+
+export function isNotifSoundEnabled() {
+	return notifSoundEnabled;
+}
+
 export async function loadSettings() {
 	try {
 		const d = await getDb();
@@ -17,6 +23,9 @@ export async function loadSettings() {
 			if (r.key === "reset_notif_minutes") {
 				$("cfg-reset-notif").value = r.value;
 				setResetNotifMinutes(parseInt(r.value) || 0);
+			}
+			if (r.key === "notif_sound_enabled") {
+				notifSoundEnabled = r.value !== "0";
 			}
 		});
 		return result;
@@ -88,6 +97,31 @@ export async function setupTurboToggle() {
 	} catch (e) {
 		console.warn("turbo setup failed:", e);
 	}
+}
+
+export async function setupNotifSoundToggle() {
+	const btn = $("btn-notif-sound");
+	if (!btn) return;
+
+	function updateBtn() {
+		btn.textContent = notifSoundEnabled ? "Enabled" : "Disabled";
+		btn.classList.toggle("active", notifSoundEnabled);
+	}
+	updateBtn();
+
+	btn.addEventListener("click", async () => {
+		notifSoundEnabled = !notifSoundEnabled;
+		updateBtn();
+		try {
+			const d = await getDb();
+			await d.execute(
+				"INSERT OR REPLACE INTO config (key, value) VALUES ('notif_sound_enabled', $1)",
+				[notifSoundEnabled ? "1" : "0"],
+			);
+		} catch (e) {
+			console.warn("notif sound toggle save failed:", e);
+		}
+	});
 }
 
 export async function exportData(format = "csv") {
