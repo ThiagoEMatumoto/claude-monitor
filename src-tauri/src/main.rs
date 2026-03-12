@@ -287,6 +287,7 @@ fn main() {
             commands::get_waiting_sessions,
             commands::update_tray_sessions,
             commands::play_sound,
+            commands::set_notif_sound_enabled,
             commands::enable_turbo_mode,
             commands::disable_turbo_mode,
             commands::is_turbo_enabled,

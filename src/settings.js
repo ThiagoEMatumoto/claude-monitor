@@ -26,6 +26,7 @@ export async function loadSettings() {
 			}
 			if (r.key === "notif_sound_enabled") {
 				notifSoundEnabled = r.value !== "0";
+				invoke("set_notif_sound_enabled", { enabled: notifSoundEnabled }).catch(() => {});
 			}
 		});
 		return result;
@@ -118,6 +119,7 @@ export async function setupNotifSoundToggle() {
 				"INSERT OR REPLACE INTO config (key, value) VALUES ('notif_sound_enabled', $1)",
 				[notifSoundEnabled ? "1" : "0"],
 			);
+			await invoke("set_notif_sound_enabled", { enabled: notifSoundEnabled });
 		} catch (e) {
 			console.warn("notif sound toggle save failed:", e);
 		}

@@ -7,6 +7,7 @@ use log::{info, warn};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::process::Command;
+use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use tauri::menu::Menu;
 use tauri::{Manager, State, Wry};
@@ -325,6 +326,12 @@ pub fn update_tray_sessions(
 #[tauri::command]
 pub fn play_sound() -> Result<(), String> {
     play_system_sound();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_notif_sound_enabled(enabled: bool, state: State<'_, SessionsState>) -> Result<(), String> {
+    state.sound_enabled.store(enabled, Ordering::Relaxed);
     Ok(())
 }
 
