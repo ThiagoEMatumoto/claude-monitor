@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, Manager};
@@ -38,6 +39,7 @@ pub struct WaitingSession {
 pub struct SessionsState {
     pub sessions: Mutex<HashMap<String, WaitingSession>>,
     pub notified: Mutex<HashSet<String>>,
+    pub sound_enabled: AtomicBool,
 }
 
 impl SessionsState {
@@ -45,6 +47,7 @@ impl SessionsState {
         Self {
             sessions: Mutex::new(HashMap::new()),
             notified: Mutex::new(HashSet::new()),
+            sound_enabled: AtomicBool::new(true),
         }
     }
 }
@@ -581,7 +584,9 @@ pub fn start_session_watcher(app: AppHandle) {
                         "New waiting session: {} ({}) — {}",
                         session.project, session.session_type, session.session_id
                     );
-                    play_notification_sound();
+                    if state.sound_enabled.load(Ordering::Relaxed) {
+                        play_notification_sound();
+                    }
 
                     // Mark as notified
                     let mut notified = state.notified.lock().unwrap();

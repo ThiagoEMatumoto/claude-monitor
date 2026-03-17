@@ -104,12 +104,34 @@ sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl \
 git clone https://github.com/ThiagoEMatumoto/claude-monitor.git
 cd claude-monitor
 npm install
-cd src-tauri && cargo build --release
+npx tauri build
 ```
 
 The binary will be at `src-tauri/target/release/claude-monitor`.
 
-### Install
+### macOS
+
+After building, the `.app` bundle is at:
+
+```
+src-tauri/target/release/bundle/macos/Claude Monitor.app
+```
+
+To install, move it to your Applications folder:
+
+```bash
+cp -r "src-tauri/target/release/bundle/macos/Claude Monitor.app" /Applications/
+```
+
+Alternatively, open the generated DMG at `src-tauri/target/release/bundle/dmg/` and drag the app to Applications.
+
+To run from the terminal:
+
+```bash
+open "/Applications/Claude Monitor.app"
+```
+
+### Linux
 
 Copy the binary to your PATH:
 
@@ -197,6 +219,7 @@ Settings are stored in SQLite (`~/.local/share/com.claude-monitor.app/claude-mon
 | `alert_threshold_warning`  | 75%     | Yellow alert threshold           |
 | `alert_threshold_critical` | 90%     | Red alert + desktop notification |
 | `poll_interval_secs`       | 300     | Seconds between API polls        |
+| `notif_sound_enabled`      | 1       | Play sound on notifications (1=on, 0=off) |
 
 OAuth credentials are stored in `~/.config/claude-monitor/credentials.json`.
 
