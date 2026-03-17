@@ -1,7 +1,7 @@
 import { $, invoke, debounce } from "./utils.js";
 import { refresh, startPolling, stopPolling, setBasePollInterval, setupChartRangeToggle } from "./polling.js";
 import { setupSessionListener, setupSessionClickHandler, refreshRecentSessions, setupSessionSearch } from "./sessions-ui.js";
-import { loadSettings, createDebouncedSave, setupTurboToggle, exportData } from "./settings.js";
+import { loadSettings, createDebouncedSave, setupTurboToggle, setupNotifSoundToggle, exportData } from "./settings.js";
 import { refreshInsights, setupInsightEvents } from "./analytics-ui.js";
 import { refreshPlugins, setupPluginEvents } from "./plugins-ui.js";
 
@@ -31,6 +31,7 @@ async function init() {
 	refreshRecentSessions();
 	recentRefreshTimer = setInterval(refreshRecentSessions, 60000);
 	setupTurboToggle();
+	setupNotifSoundToggle();
 	setupChartRangeToggle();
 	setupInsightEvents();
 	setupPluginEvents();
